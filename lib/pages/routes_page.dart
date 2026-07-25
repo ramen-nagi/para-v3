@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
+import 'routes_page_map.dart';
 
 class RoutesPage extends StatefulWidget {
   const RoutesPage({super.key});
@@ -13,7 +14,6 @@ class _RoutesPageState extends State<RoutesPage> {
   final ScrollController _scrollController = ScrollController();
 
   VehicleType _selectedType = VehicleType.bus;
-  RouteModel? _selectedRoute;
 
   static const int _pageSize = 10;
   int _displayedCount = _pageSize;
@@ -39,7 +39,6 @@ class _RoutesPageState extends State<RoutesPage> {
   }
 
   void _onScroll() {
-    // Check if user scrolled near the bottom of the current 10 items
     if (_scrollController.position.pixels >=
         _scrollController.position.maxScrollExtent - 200) {
       _loadMoreRoutes();
@@ -60,26 +59,13 @@ class _RoutesPageState extends State<RoutesPage> {
     return allRoutes.where((r) => r.vehicleType == _selectedType).toList();
   }
 
-  void _onTabChanged(VehicleType newType) {
-    if (_selectedType != newType) {
-      setState(() {
-        _selectedType = newType;
-        _displayedCount = _pageSize;
-      });
-      if (_scrollController.hasClients) {
-        _scrollController.jumpTo(0);
-      }
-    }
-  }
-
   List<RouteModel> _getRouteSuggestions(String query) {
     final allRoutes = GtfsNetworkService.instance.routesMap.values.toList();
-
     final tokens = query
         .toLowerCase()
         .split(' ')
-        .map((token) => token.trim())
-        .where((token) => token.isNotEmpty)
+        .map((t) => t.trim())
+        .where((t) => t.isNotEmpty)
         .toList();
 
     if (tokens.isEmpty) {
@@ -92,100 +78,16 @@ class _RoutesPageState extends State<RoutesPage> {
     }).toList();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final service = GtfsNetworkService.instance;
-    final allCategoryRoutes = _getFilteredRoutes();
-    final visibleRoutes = allCategoryRoutes.take(_displayedCount).toList();
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Routes'),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-        child: Column(
-          children: [
-            SearchAnchor.bar(
-              searchController: _searchController,
-              barHintText: 'Search routes (e.g., Philcoa UP)...',
-              suggestionsBuilder:
-                  (BuildContext context, SearchController controller) {
-                    if (!service.isLoaded) {
-                      return const [
-                        ListTile(
-                          leading: SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                          title: Text('Syncing database...'),
-                        ),
-                      ];
-                    }
-
-                    final suggestions = _getRouteSuggestions(controller.text);
-
-                    if (suggestions.isEmpty) {
-                      return const [
-                        ListTile(title: Text('No routes found')),
-                      ];
-                    }
-
-                    return suggestions
-                        .map((route) => _buildRouteTile(route))
-                        .toList();
-                  },
-            ),
-
-            const SizedBox(height: 12),
-
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _buildTabItem(
-                    'Bus',
-                    VehicleType.bus,
-                    Icons.directions_bus,
-                  ),
-                  _buildTabItem(
-                    'Jeep',
-                    VehicleType.jeep,
-                    Icons.airport_shuttle,
-                  ),
-                  _buildTabItem(
-                    'Train',
-                    VehicleType.train,
-                    Icons.train,
-                  ),
-                  _buildTabItem(
-                    'Tricycle',
-                    VehicleType.tricycle,
-                    Icons.pedal_bike,
-                  ),
-                  _buildTabItem(
-                    'UV Express',
-                    VehicleType.uvExpress,
-                    Icons.directions_car,
-                  ),
-                ],
-              ),
-            ),
-
-            const Divider(height: 16),
-
-            Expanded(
-              child: _buildRouteListContent(
-                service,
-                allCategoryRoutes,
-                visibleRoutes,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  void _onTabChanged(VehicleType newType) {
+    if (_selectedType != newType) {
+      setState(() {
+        _selectedType = newType;
+        _displayedCount = _pageSize;
+      });
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+    }
   }
 
   Widget _buildRouteTile(RouteModel route) {
@@ -198,16 +100,15 @@ class _RoutesPageState extends State<RoutesPage> {
           'ID: ${route.routeId} • ${route.trips.length} direction trips',
         ),
         onTap: () {
-          setState(() {
-            _selectedRoute = route;
-          });
-
-          // Close search view if open
           if (_searchController.isOpen) {
             _searchController.closeView(route.routeLongName);
           }
 
-          debugPrint('Tapped Route: ${route.routeLongName} (${route.routeId})');
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => RoutesPageMap(route: route),
+            ),
+          );
         },
       ),
     );
@@ -218,26 +119,22 @@ class _RoutesPageState extends State<RoutesPage> {
     List<RouteModel> allCategoryRoutes,
     List<RouteModel> visibleRoutes,
   ) {
-    // State 1: Still downloading or syncing database
     if (service.isDownloading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    // State 2: No routes match the selected vehicle category
     if (allCategoryRoutes.isEmpty) {
       return const Center(
         child: Text('No routes available for this mode.'),
       );
     }
 
-    // State 3: Render paginated list
     final bool hasMoreItems = _displayedCount < allCategoryRoutes.length;
 
     return ListView.builder(
       controller: _scrollController,
       itemCount: visibleRoutes.length + (hasMoreItems ? 1 : 0),
       itemBuilder: (context, index) {
-        // Show loading spinner at the bottom when fetching next page
         if (index == visibleRoutes.length) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 16.0),
@@ -254,6 +151,96 @@ class _RoutesPageState extends State<RoutesPage> {
         final route = visibleRoutes[index];
         return _buildRouteTile(route);
       },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final service = GtfsNetworkService.instance;
+    final allCategoryRoutes = _getFilteredRoutes();
+    final visibleRoutes = allCategoryRoutes.take(_displayedCount).toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Routes'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: Column(
+          children: [
+            // 1. Search Anchor
+            SearchAnchor.bar(
+              searchController: _searchController,
+              barHintText: 'Search routes (e.g., Philcoa UP)...',
+              suggestionsBuilder: (context, controller) {
+                if (!service.isLoaded) {
+                  return const [
+                    ListTile(
+                      leading: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      title: Text('Syncing database...'),
+                    ),
+                  ];
+                }
+
+                final suggestions = _getRouteSuggestions(controller.text);
+
+                if (suggestions.isEmpty) {
+                  return const [
+                    ListTile(title: Text('No routes found')),
+                  ];
+                }
+
+                return suggestions
+                    .map((route) => _buildRouteTile(route))
+                    .toList();
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            // 2. Vehicle Mode Tab Bar
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildTabItem('Bus', VehicleType.bus, Icons.directions_bus),
+                  _buildTabItem(
+                    'Jeep',
+                    VehicleType.jeep,
+                    Icons.airport_shuttle,
+                  ),
+                  _buildTabItem('Train', VehicleType.train, Icons.train),
+                  _buildTabItem(
+                    'Tricycle',
+                    VehicleType.tricycle,
+                    Icons.pedal_bike,
+                  ),
+                  _buildTabItem(
+                    'UV Express',
+                    VehicleType.uvExpress,
+                    Icons.directions_car,
+                  ),
+                ],
+              ),
+            ),
+
+            const Divider(height: 16),
+
+            // 3. Category List
+            Expanded(
+              child: _buildRouteListContent(
+                service,
+                allCategoryRoutes,
+                visibleRoutes,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
