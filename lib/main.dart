@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
-import 'commute_page.dart';
-import 'routes_page.dart';
-import 'profile_page.dart';
+import 'pages/commute_page.dart';
+import 'pages/routes_page.dart';
+import 'pages/profile_page.dart';
 
 void main() async{
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,11 +18,11 @@ void main() async{
 
   GtfsNetworkService.instance.initializeAndSync();
 
-  runApp(const MyApp());
+  runApp(const ParaApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class ParaApp extends StatelessWidget {
+  const ParaApp({super.key});
 
   @override
   Widget build(BuildContext context) {

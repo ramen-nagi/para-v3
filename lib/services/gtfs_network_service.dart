@@ -7,15 +7,36 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// --- Simple Dart In-Memory Models ---
+enum VehicleType {
+  unknown(0),
+  tricycle(1),
+  train(2),
+  jeep(3),
+  bus(4),
+  uvExpress(5)
+  ;
+
+  final int rawValue;
+  const VehicleType(this.rawValue);
+
+  static VehicleType fromInt(int value) {
+    return VehicleType.values.firstWhere(
+      (e) => e.rawValue == value,
+      orElse: () => VehicleType.unknown,
+    );
+  }
+}
+
 class RouteModel {
   final String routeId;
   final String routeLongName;
+  final VehicleType vehicleType;
   final List<TripModel> trips;
 
   RouteModel({
     required this.routeId,
     required this.routeLongName,
+    required this.vehicleType,
     required this.trips,
   });
 }
@@ -71,7 +92,6 @@ class GtfsNetworkService extends ChangeNotifier {
 
       final client = Supabase.instance.client;
 
-      // Check remote metadata table
       final metadata = await client
           .from('dataset_metadata')
           .select('version, file_path')
@@ -122,13 +142,19 @@ class GtfsNetworkService extends ChangeNotifier {
     };
 
     // 2. Fetch routes
-    final routeRows = db.select('SELECT route_id, route_long_name FROM routes');
+    final routeRows = db.select(
+      'SELECT route_id, route_long_name, route_type FROM routes'
+    );
     for (final row in routeRows) {
       final routeId = row['route_id'] as String;
       final routeLongName = row['route_long_name'] as String;
+      final routeTypeInt = row['route_type'] as int;
+      final vehicleType = VehicleType.fromInt(routeTypeInt);
+
       routesMap[routeId] = RouteModel(
         routeId: routeId,
         routeLongName: routeLongName,
+        vehicleType: vehicleType,
         trips: [],
       );
     }
