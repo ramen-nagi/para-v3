@@ -69,7 +69,6 @@ class StopTimeModel {
   });
 }
 
-// --- Global Service Instance ---
 class GtfsNetworkService extends ChangeNotifier {
   static final GtfsNetworkService instance = GtfsNetworkService._();
   GtfsNetworkService._();
@@ -78,10 +77,9 @@ class GtfsNetworkService extends ChangeNotifier {
   bool isDownloading = false;
   String? errorMessage;
 
-  // In-memory dataset maps
-  final Map<String, RouteModel> routesMap = {}; // route_id -> RouteModel
+  final Map<String, RouteModel> routesMap = {};
 
-  /// Step 1: Download & sync background task
+  ///  Download & sync background task
   Future<void> initializeAndSync() async {
     try {
       isDownloading = true;
@@ -115,7 +113,6 @@ class GtfsNetworkService extends ChangeNotifier {
         await prefs.setInt('cached_gtfs_version', remoteVersion);
       }
 
-      // Step 2: Load into memory
       await _loadDatabaseIntoMemory(localDbFile.path);
 
       isLoaded = true;
@@ -130,18 +127,16 @@ class GtfsNetworkService extends ChangeNotifier {
     }
   }
 
-  /// Step 2: Parse raw SQLite tables into Dart Memory Objects
+  /// Parse raw SQLite tables into Dart Memory Objects
   Future<void> _loadDatabaseIntoMemory(String dbPath) async {
     final db = sqlite3.open(dbPath);
 
-    // 1. Fetch stops to create quick stop_id -> stop_name map
     final stopsRows = db.select('SELECT stop_id, stop_name FROM stops');
     final Map<String, String> stopNames = {
       for (final row in stopsRows)
         row['stop_id'] as String: row['stop_name'] as String,
     };
 
-    // 2. Fetch routes
     final routeRows = db.select(
       'SELECT route_id, route_long_name, route_type FROM routes'
     );
@@ -159,7 +154,6 @@ class GtfsNetworkService extends ChangeNotifier {
       );
     }
 
-    // 3. Fetch trips
     final tripRows = db.select('SELECT trip_id, route_id, shape_id FROM trips');
     final Map<String, TripModel> tripMap = {};
 
@@ -179,7 +173,6 @@ class GtfsNetworkService extends ChangeNotifier {
       routesMap[routeId]?.trips.add(trip);
     }
 
-    // 4. Fetch stop_times and link to trips
     final stopTimeRows = db.select('''
       SELECT trip_id, stop_sequence, stop_id 
       FROM stop_times 
