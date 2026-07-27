@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
+import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'dart:convert';
 
 class RoutesPageMap extends StatefulWidget {
-  final RouteModel route;
+  final RoutesModel route;
 
   const RoutesPageMap({
     super.key,
@@ -18,10 +21,10 @@ class RoutesPageMap extends StatefulWidget {
 class _RoutesPageMapState extends State<RoutesPageMap> {
   // ignore: unused_field
   MapboxMap? _mapboxMap;
+  CircleAnnotationManager? _circleAnnotationManager;
 
   final DraggableScrollableController _sheetController =
       DraggableScrollableController();
-
   bool _isExpanded = false;
 
   @override
@@ -49,7 +52,7 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
     });
   }
 
-  String _getTripHeader(TripModel trip) {
+  String _getTripHeader(TripsModel trip) {
     if (trip.stopTimes.isEmpty) {
       return 'Trip ID: ${trip.tripId}';
     }
@@ -85,10 +88,55 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
           ),
           onTap: () {
             debugPrint('Selected Trip: ${trip.tripId}');
+
+            _drawStopMarkersOnMap(trip);
+
           },
         ),
       );
     }).toList();
+  }
+
+  Future<void> _drawStopMarkersOnMap(TripsModel trip) async {
+    if (_mapboxMap == null) return;
+
+    _circleAnnotationManager ??= await _mapboxMap!.annotations
+        .createCircleAnnotationManager();
+
+    await _circleAnnotationManager!.deleteAll();
+
+    final stopTimes = trip.stopTimes;
+    if (stopTimes.isEmpty) return;
+
+    final List<CircleAnnotationOptions> annotations = [];
+
+    for (int i = 0; i < stopTimes.length; i++) {
+      final stop = stopTimes[i];
+      final bool isStart = i == 0;
+      final bool isEnd = i == stopTimes.length - 1;
+
+      int circleColor = 0xFF1976D2;
+
+      if (isStart) {
+        circleColor = 0xFF388E3C;
+      } else if (isEnd) {
+        circleColor = 0xFFD32F2F;
+      }
+
+      final options = CircleAnnotationOptions(
+        geometry: Point(
+          coordinates: Position(stop.stopLon, stop.stopLat),
+        ),
+        circleRadius: isStart || isEnd ? 8.0 : 5.0,
+        circleColor: circleColor,
+        circleStrokeWidth: 2.0,
+        circleStrokeColor: 0xFFFFFFFF,
+      );
+
+      annotations.add(options);
+    }
+
+    await _circleAnnotationManager!.createMulti(annotations);
   }
 
   @override
@@ -183,23 +231,5 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
         ],
       ),
     );
-  }
-
-  // TODO: Refactor this function and the one in route_page.dart into gtfs_network_service.dart
-  IconData _getIconForType(VehicleType type) {
-    switch (type) {
-      case VehicleType.bus:
-        return Icons.directions_bus;
-      case VehicleType.jeep:
-        return Icons.airport_shuttle;
-      case VehicleType.train:
-        return Icons.train;
-      case VehicleType.tricycle:
-        return Icons.pedal_bike;
-      case VehicleType.uvExpress:
-        return Icons.directions_car;
-      default:
-        return Icons.alt_route;
-    }
   }
 }

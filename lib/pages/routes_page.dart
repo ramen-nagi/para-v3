@@ -54,12 +54,12 @@ class _RoutesPageState extends State<RoutesPage> {
     }
   }
 
-  List<RouteModel> _getFilteredRoutes() {
+  List<RoutesModel> _getFilteredRoutes() {
     final allRoutes = GtfsNetworkService.instance.routesMap.values.toList();
     return allRoutes.where((r) => r.vehicleType == _selectedType).toList();
   }
 
-  List<RouteModel> _getRouteSuggestions(String query) {
+  List<RoutesModel> _getRouteSuggestions(String query) {
     final allRoutes = GtfsNetworkService.instance.routesMap.values.toList();
     final tokens = query
         .toLowerCase()
@@ -90,7 +90,7 @@ class _RoutesPageState extends State<RoutesPage> {
     }
   }
 
-  Widget _buildRouteTile(RouteModel route) {
+  Widget _buildRouteTile(RoutesModel route) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8.0),
       child: ListTile(
@@ -116,8 +116,8 @@ class _RoutesPageState extends State<RoutesPage> {
 
   Widget _buildRouteListContent(
     GtfsNetworkService service,
-    List<RouteModel> allCategoryRoutes,
-    List<RouteModel> visibleRoutes,
+    List<RoutesModel> allCategoryRoutes,
+    List<RoutesModel> visibleRoutes,
   ) {
     if (service.isDownloading) {
       return const Center(child: CircularProgressIndicator());

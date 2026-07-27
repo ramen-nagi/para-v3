@@ -27,13 +27,13 @@ enum VehicleType {
   }
 }
 
-class RouteModel {
+class RoutesModel {
   final String routeId;
   final String routeLongName;
   final VehicleType vehicleType;
-  final List<TripModel> trips;
+  final List<TripsModel> trips;
 
-  RouteModel({
+  RoutesModel({
     required this.routeId,
     required this.routeLongName,
     required this.vehicleType,
@@ -41,13 +41,13 @@ class RouteModel {
   });
 }
 
-class TripModel {
+class TripsModel {
   final String tripId;
   final String routeId;
   final String? shapeId;
-  final List<StopTimeModel> stopTimes;
+  final List<StopsAndStopTimesModel> stopTimes;
 
-  TripModel({
+  TripsModel({
     required this.tripId,
     required this.routeId,
     this.shapeId,
@@ -55,17 +55,21 @@ class TripModel {
   });
 }
 
-class StopTimeModel {
+class StopsAndStopTimesModel {
   final String tripId;
   final int stopSequence;
   final String stopId;
   final String stopName;
+  final double stopLat;
+  final double stopLon;
 
-  StopTimeModel({
+  StopsAndStopTimesModel({
     required this.tripId,
     required this.stopSequence,
     required this.stopId,
     required this.stopName,
+    required this.stopLat,
+    required this.stopLon,
   });
 }
 
@@ -77,7 +81,7 @@ class GtfsNetworkService extends ChangeNotifier {
   bool isDownloading = false;
   String? errorMessage;
 
-  final Map<String, RouteModel> routesMap = {};
+  final Map<String, RoutesModel> routesMap = {};
 
   ///  Download & sync background task
   Future<void> initializeAndSync() async {
@@ -128,25 +132,34 @@ class GtfsNetworkService extends ChangeNotifier {
   }
 
   /// Parse raw SQLite tables into Dart Memory Objects
-  Future<void> _loadDatabaseIntoMemory(String dbPath) async {
+Future<void> _loadDatabaseIntoMemory(String dbPath) async {
     final db = sqlite3.open(dbPath);
 
-    final stopsRows = db.select('SELECT stop_id, stop_name FROM stops');
-    final Map<String, String> stopNames = {
-      for (final row in stopsRows)
-        row['stop_id'] as String: row['stop_name'] as String,
-    };
+    final Map<String, String> stopNames = {};
+    final Map<String, double> stopLats = {};
+    final Map<String, double> stopLons = {};
+
+    final stopsRows = db.select(
+      'SELECT stop_id, stop_name, stop_lat, stop_lon FROM stops',
+    );
+
+    for (final row in stopsRows) {
+      final stopId = row['stop_id'] as String;
+      stopNames[stopId] = row['stop_name'] as String;
+      stopLats[stopId] = (row['stop_lat'] as num).toDouble();
+      stopLons[stopId] = (row['stop_lon'] as num).toDouble();
+    }
 
     final routeRows = db.select(
-      'SELECT route_id, route_long_name, route_type FROM routes'
+      'SELECT route_id, route_long_name, route_type FROM routes',
     );
-    for (final row in routeRows) {
+    for (final row in routeRows) { 
       final routeId = row['route_id'] as String;
       final routeLongName = row['route_long_name'] as String;
       final routeTypeInt = row['route_type'] as int;
       final vehicleType = VehicleType.fromInt(routeTypeInt);
 
-      routesMap[routeId] = RouteModel(
+      routesMap[routeId] = RoutesModel(
         routeId: routeId,
         routeLongName: routeLongName,
         vehicleType: vehicleType,
@@ -155,14 +168,14 @@ class GtfsNetworkService extends ChangeNotifier {
     }
 
     final tripRows = db.select('SELECT trip_id, route_id, shape_id FROM trips');
-    final Map<String, TripModel> tripMap = {};
+    final Map<String, TripsModel> tripMap = {};
 
     for (final row in tripRows) {
       final tripId = row['trip_id'] as String;
       final routeId = row['route_id'] as String;
       final shapeId = row['shape_id'] as String?;
 
-      final trip = TripModel(
+      final trip = TripsModel(
         tripId: tripId,
         routeId: routeId,
         shapeId: shapeId,
@@ -174,21 +187,23 @@ class GtfsNetworkService extends ChangeNotifier {
     }
 
     final stopTimeRows = db.select('''
-      SELECT trip_id, stop_sequence, stop_id 
-      FROM stop_times 
-      ORDER BY trip_id, stop_sequence ASC
-    ''');
+    SELECT trip_id, stop_sequence, stop_id 
+    FROM stop_times 
+    ORDER BY trip_id, stop_sequence ASC
+  ''');
 
     for (final row in stopTimeRows) {
       final tripId = row['trip_id'] as String;
       final stopId = row['stop_id'] as String;
       final stopSeq = row['stop_sequence'] as int;
 
-      final stopTime = StopTimeModel(
+      final stopTime = StopsAndStopTimesModel(
         tripId: tripId,
         stopSequence: stopSeq,
         stopId: stopId,
         stopName: stopNames[stopId] ?? 'Unknown Stop',
+        stopLat: stopLats[stopId] ?? 0.0,
+        stopLon: stopLons[stopId] ?? 0.0,
       );
 
       tripMap[tripId]?.stopTimes.add(stopTime);
@@ -197,8 +212,7 @@ class GtfsNetworkService extends ChangeNotifier {
     db.dispose();
   }
 
-  /// Search helper for RoutesPage
-  List<RouteModel> searchRoutesByLongName(String query) {
+  List<RoutesModel> searchRoutesByLongName(String query) {
     if (query.isEmpty) return routesMap.values.toList();
     final lowerQuery = query.toLowerCase();
     return routesMap.values
