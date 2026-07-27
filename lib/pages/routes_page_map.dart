@@ -16,6 +16,7 @@ class RoutesPageMap extends StatefulWidget {
 }
 
 class _RoutesPageMapState extends State<RoutesPageMap> {
+  // ignore: unused_field
   MapboxMap? _mapboxMap;
 
   final DraggableScrollableController _sheetController =
@@ -39,7 +40,7 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
 
     _sheetController.animateTo(
       targetSize,
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 200),
       curve: Curves.easeInOut,
     );
 
@@ -48,9 +49,59 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
     });
   }
 
+  String _getTripHeader(TripModel trip) {
+    if (trip.stopTimes.isEmpty) {
+      return 'Trip ID: ${trip.tripId}';
+    }
+
+    final firstStop = trip.stopTimes.first.stopName;
+    final lastStop = trip.stopTimes.last.stopName;
+
+    return '$firstStop - $lastStop';
+  }
+
+  List<Widget> _displayTripsCards(List<dynamic> trips) {
+    return trips.map((trip) {
+      final tripHeader = _getTripHeader(trip);
+
+      return Card(
+        margin: const EdgeInsets.only(bottom: 8.0),
+        elevation: 1,
+        child: ListTile(
+          title: Text(
+            tripHeader,
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
+          subtitle: Text(
+            '${trip.stopTimes.length} stops',
+            style: const TextStyle(fontSize: 12),
+          ),
+          trailing: const Icon(
+            Icons.chevron_right,
+            size: 20,
+          ),
+          onTap: () {
+            debugPrint('Selected Trip: ${trip.tripId}');
+          },
+        ),
+      );
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final trips = widget.route.trips;
+
     return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          widget.route.routeLongName,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ),
       body: Stack(
         children: [
           UniversalMapTile(
@@ -94,46 +145,6 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
                           ),
 
                           const SizedBox(height: 12),
-
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16.0,
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  _getIconForType(widget.route.vehicleType),
-                                  color: Theme.of(context).primaryColor,
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        widget.route.routeLongName,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      Text(
-                                        'Route ID: ${widget.route.routeId}',
-                                        style: TextStyle(
-                                          color: Colors.grey[600],
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Divider(),
                         ],
                       ),
                     ),
@@ -145,14 +156,22 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Direction Trips (${widget.route.trips.length})',
+                            'Available Directions / Trips (${trips.length})',
                             style: const TextStyle(
-                              fontSize: 16,
+                              fontSize: 15,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
+
                           const SizedBox(height: 12),
-                          // Additional route details will go here
+
+                          if (trips.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16.0),
+                              child: Text('No trip direction data available.'),
+                            )
+                          else
+                            ..._displayTripsCards(trips),
                         ],
                       ),
                     ),
