@@ -35,7 +35,6 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
 
   void _onMapCreated(MapboxMap mapboxMap) {
     _mapboxMap = mapboxMap;
-    debugPrint('Map initialized for route: ${widget.route.routeLongName}');
   }
 
   void _toggleSheetPosition() {
@@ -93,8 +92,11 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
 
             //TOOD: Modify card widget to display all intermediate stops in an ordered list
 
-            //TODO: Use shapes if the selected route is a VehicleType.train
-            _drawTripPolylineOnMap(trip);
+            if (widget.route.vehicleType == VehicleType.train) {
+              _drawTripShapePolylineOnMap(trip);
+            } else {
+              _drawTripPolylineOnMap(trip);
+            }
           },
         ),
       );
@@ -300,6 +302,88 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
     } catch (e) {
       debugPrint('Error requesting map matching polyline: $e');
     }
+  }
+
+  List<Position> _getShapesPoints(TripsModel trip) {
+    if (trip.shapes == null || trip.shapes!.isEmpty) {
+      return [];
+    }
+
+    final sortedShapes = List<ShapesModel>.from(trip.shapes!)
+      ..sort((a, b) => a.shapePtSequence.compareTo(b.shapePtSequence));
+
+    return sortedShapes
+        .map((shape) => Position(shape.shapePtLon, shape.shapePtLat))
+        .toList();
+  }
+
+  Future<void> _drawTripShapePolylineOnMap(TripsModel trip) async {
+    if (_mapboxMap == null) return;
+
+    final shapePositions = _getShapesPoints(trip);
+
+    if (shapePositions.isEmpty) {
+      debugPrint(
+        'No shapes found for train trip, falling back to stop coordinates.',
+      );
+      final stopTimes = _getStopsAndStopTimes(trip);
+      shapePositions.addAll(
+        stopTimes.map((st) => Position(st.stopLon, st.stopLat)),
+      );
+    }
+
+    if (shapePositions.isEmpty) return;
+
+    final style = _mapboxMap!.style;
+
+    if (await style.styleLayerExists('route-line-layer')) {
+      await style.removeStyleLayer('route-line-layer');
+    }
+    if (await style.styleSourceExists('route-line-source')) {
+      await style.removeStyleSource('route-line-source');
+    }
+
+    await style.addSource(
+      GeoJsonSource(
+        id: 'route-line-source',
+        data: jsonEncode({
+          "type": "Feature",
+          "properties": {},
+          "geometry": {
+            "type": "LineString",
+            "coordinates": shapePositions.map((p) => [p.lng, p.lat]).toList(),
+          },
+        }),
+      ),
+    );
+
+    await style.addLayer(
+      LineLayer(
+        id: 'route-line-layer',
+        sourceId: 'route-line-source',
+        lineColor: 0xFF1976D2,
+        lineWidth: 5.0,
+        lineJoin: LineJoin.ROUND,
+        lineCap: LineCap.ROUND,
+      ),
+    );
+
+    final List<Point> points = shapePositions
+        .map((pos) => Point(coordinates: pos))
+        .toList();
+
+    final cameraOptions = await _mapboxMap!.cameraForCoordinatesPadding(
+      points,
+      CameraOptions(),
+      MbxEdgeInsets(top: 50.0, left: 50.0, bottom: 250.0, right: 50.0),
+      null,
+      null,
+    );
+
+    await _mapboxMap!.easeTo(
+      cameraOptions,
+      MapAnimationOptions(duration: 1000),
+    );
   }
 
   @override

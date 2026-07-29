@@ -44,14 +44,30 @@ class RoutesModel {
 class TripsModel {
   final String tripId;
   final String routeId;
-  final String? shapeId;
   final List<StopsAndStopTimesModel> stopTimes;
+  final String? shapeId;
+  final List<ShapesModel>? shapes;
 
   TripsModel({
     required this.tripId,
     required this.routeId,
-    this.shapeId,
     required this.stopTimes,
+    this.shapeId,
+    this.shapes,
+  });
+}
+
+class ShapesModel {
+  final String shapeId;
+  final double shapePtLat;
+  final double shapePtLon;
+  final int shapePtSequence;
+
+  ShapesModel({
+    required this.shapeId,
+    required this.shapePtLat,
+    required this.shapePtLon,
+    required this.shapePtSequence,
   });
 }
 
@@ -83,7 +99,6 @@ class GtfsNetworkService extends ChangeNotifier {
 
   final Map<String, RoutesModel> routesMap = {};
 
-  ///  Download & sync background task
   Future<void> initializeAndSync() async {
     try {
       isDownloading = true;
@@ -131,8 +146,7 @@ class GtfsNetworkService extends ChangeNotifier {
     }
   }
 
-  /// Parse raw SQLite tables into Dart Memory Objects
-Future<void> _loadDatabaseIntoMemory(String dbPath) async {
+  Future<void> _loadDatabaseIntoMemory(String dbPath) async {
     final db = sqlite3.open(dbPath);
 
     final Map<String, String> stopNames = {};
@@ -153,7 +167,7 @@ Future<void> _loadDatabaseIntoMemory(String dbPath) async {
     final routeRows = db.select(
       'SELECT route_id, route_long_name, route_type FROM routes',
     );
-    for (final row in routeRows) { 
+    for (final row in routeRows) {
       final routeId = row['route_id'] as String;
       final routeLongName = row['route_long_name'] as String;
       final routeTypeInt = row['route_type'] as int;
@@ -180,17 +194,56 @@ Future<void> _loadDatabaseIntoMemory(String dbPath) async {
         routeId: routeId,
         shapeId: shapeId,
         stopTimes: [],
+        shapes: [],
       );
 
       tripMap[tripId] = trip;
       routesMap[routeId]?.trips.add(trip);
     }
 
+    final Set<String> shapeIds = tripMap.values
+        .map((t) => t.shapeId)
+        .whereType<String>()
+        .toSet();
+
+    if (shapeIds.isNotEmpty) {
+      final placeholders = List.filled(shapeIds.length, '?').join(',');
+      final shapeQuery =
+          '''
+          SELECT shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence 
+          FROM shapes 
+          WHERE shape_id IN ($placeholders)
+          ORDER BY shape_id, shape_pt_sequence ASC
+          ''';
+
+      final shapeRows = db.select(shapeQuery, shapeIds.toList());
+
+      final Map<String, List<ShapesModel>> shapesByShapeId = {};
+
+      for (final row in shapeRows) {
+        final sId = row['shape_id'] as String;
+        final shapePoint = ShapesModel(
+          shapeId: sId,
+          shapePtLat: (row['shape_pt_lat'] as num).toDouble(),
+          shapePtLon: (row['shape_pt_lon'] as num).toDouble(),
+          shapePtSequence: row['shape_pt_sequence'] as int,
+        );
+
+        shapesByShapeId.putIfAbsent(sId, () => []).add(shapePoint);
+      }
+
+      for (final trip in tripMap.values) {
+        if (trip.shapeId != null && shapesByShapeId.containsKey(trip.shapeId)) {
+          trip.shapes?.addAll(shapesByShapeId[trip.shapeId]!);
+        }
+      }
+    }
+
     final stopTimeRows = db.select('''
-    SELECT trip_id, stop_sequence, stop_id 
-    FROM stop_times 
-    ORDER BY trip_id, stop_sequence ASC
-  ''');
+      SELECT trip_id, stop_sequence, stop_id 
+      FROM stop_times 
+      ORDER BY trip_id, stop_sequence ASC
+      ''');
 
     for (final row in stopTimeRows) {
       final tripId = row['trip_id'] as String;

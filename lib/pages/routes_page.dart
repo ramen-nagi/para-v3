@@ -97,7 +97,7 @@ class _RoutesPageState extends State<RoutesPage> {
         leading: Icon(_getIconForType(route.vehicleType)),
         title: Text(route.routeLongName),
         subtitle: Text(
-          'ID: ${route.routeId} • ${route.trips.length} direction trips',
+          '${route.trips.length} direction trips',
         ),
         onTap: () {
           if (_searchController.isOpen) {
@@ -168,10 +168,9 @@ class _RoutesPageState extends State<RoutesPage> {
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
         child: Column(
           children: [
-            // 1. Search Anchor
             SearchAnchor.bar(
               searchController: _searchController,
-              barHintText: 'Search routes (e.g., Philcoa UP)...',
+              barHintText: 'Search routes',
               suggestionsBuilder: (context, controller) {
                 if (!service.isLoaded) {
                   return const [
