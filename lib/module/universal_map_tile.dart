@@ -4,13 +4,14 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 class UniversalMapTile extends StatefulWidget {
   final double initialZoom;
-
   final void Function(MapboxMap mapboxMap)? onMapCreated;
+  final void Function(Point point)? onLongTap;
 
   const UniversalMapTile({
     super.key,
     this.initialZoom = 12.0,
     this.onMapCreated,
+    this.onLongTap,
   });
 
   @override
@@ -38,12 +39,10 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
 
     return MapWidget(
       key: const ValueKey("UniversalMapWidget"),
-
       viewport: CameraViewportState(
         center: defaultPoint,
         zoom: widget.initialZoom,
       ),
-
       onMapCreated: (MapboxMap mapboxMap) async {
         await mapboxMap.setBounds(
           CameraBoundsOptions(
@@ -51,6 +50,14 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
             minZoom: 10.0,
             maxZoom: 17.0,
           ),
+        );
+
+        mapboxMap.addInteraction(
+          LongTapInteraction.onMap((context) {
+            if (widget.onLongTap != null) {
+              widget.onLongTap!(context.point);
+            }
+          }),
         );
 
         if (widget.onMapCreated != null) {
