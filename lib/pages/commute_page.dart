@@ -23,6 +23,7 @@ class _CommutePageState extends State<CommutePage> {
       body: Stack(
         children: [
           UniversalMapTile(
+            key: const PageStorageKey("CommuteMapTile"),
             initialZoom: 12.0,
             onMapCreated: _onMapCreated,
           ),
@@ -31,4 +32,3 @@ class _CommutePageState extends State<CommutePage> {
     );
   }
 }
- 

@@ -39,7 +39,7 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
 
     return MapWidget(
       key: const ValueKey("UniversalMapWidget"),
-      viewport: CameraViewportState(
+      cameraOptions: CameraOptions(
         center: defaultPoint,
         zoom: widget.initialZoom,
       ),

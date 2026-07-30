@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
@@ -95,7 +96,6 @@ class GtfsNetworkService extends ChangeNotifier {
 
   bool isLoaded = false;
   bool isDownloading = false;
-  String? errorMessage;
 
   final Map<String, RoutesModel> routesMap = {};
 
@@ -132,22 +132,27 @@ class GtfsNetworkService extends ChangeNotifier {
         await prefs.setInt('cached_gtfs_version', remoteVersion);
       }
 
-      await _loadDatabaseIntoMemory(localDbFile.path);
+      final parsedRoutes = await Isolate.run(
+        () => _loadDatabaseInIsolate(localDbFile.path),
+      );
+
+      routesMap.clear();
+      routesMap.addAll(parsedRoutes);
 
       isLoaded = true;
       isDownloading = false;
       notifyListeners();
-      debugPrint('GTFS Dataset successfully loaded into memory!');
+      debugPrint('GTFS Dataset successfully loaded into memory via Isolate!');
     } catch (e) {
-      errorMessage = e.toString();
       isDownloading = false;
       notifyListeners();
       debugPrint('Error loading dataset: $e');
     }
   }
 
-  Future<void> _loadDatabaseIntoMemory(String dbPath) async {
+  static Map<String, RoutesModel> _loadDatabaseInIsolate(String dbPath) {
     final db = sqlite3.open(dbPath);
+    final Map<String, RoutesModel> routes = {};
 
     final Map<String, String> stopNames = {};
     final Map<String, double> stopLats = {};
@@ -173,7 +178,7 @@ class GtfsNetworkService extends ChangeNotifier {
       final routeTypeInt = row['route_type'] as int;
       final vehicleType = VehicleType.fromInt(routeTypeInt);
 
-      routesMap[routeId] = RoutesModel(
+      routes[routeId] = RoutesModel(
         routeId: routeId,
         routeLongName: routeLongName,
         vehicleType: vehicleType,
@@ -198,7 +203,7 @@ class GtfsNetworkService extends ChangeNotifier {
       );
 
       tripMap[tripId] = trip;
-      routesMap[routeId]?.trips.add(trip);
+      routes[routeId]?.trips.add(trip);
     }
 
     final Set<String> shapeIds = tripMap.values
@@ -263,6 +268,7 @@ class GtfsNetworkService extends ChangeNotifier {
     }
 
     db.dispose();
+    return routes;
   }
 
   List<RoutesModel> searchRoutesByLongName(String query) {
