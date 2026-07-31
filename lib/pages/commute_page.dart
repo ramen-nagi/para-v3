@@ -17,6 +17,9 @@ class _CommutePageState extends State<CommutePage> {
   Position? _originLatLng;
   Position? _destinationLatLng;
   CircleAnnotationManager? _circleAnnotationManager;
+  final DraggableScrollableController _sheetController =
+      DraggableScrollableController();
+  bool _isExpanded = false;
 
   @override
   void initState() {
@@ -27,6 +30,7 @@ class _CommutePageState extends State<CommutePage> {
   @override
   void dispose() {
     GtfsNetworkService.instance.removeListener(_onServiceUpdate);
+    _sheetController.dispose();
     super.dispose();
   }
 
@@ -38,6 +42,20 @@ class _CommutePageState extends State<CommutePage> {
 
   void _onMapCreated(MapboxMap mapboxMap) {
     _mapboxMap = mapboxMap;
+  }
+
+  void _toggleSheetPosition() {
+    final double targetSize = _isExpanded ? 0.3 : 0.9;
+
+    _sheetController.animateTo(
+      targetSize,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+    );
+
+    setState(() {
+      _isExpanded = !_isExpanded;
+    });
   }
 
   Future<void> _drawOriginDestinationMarker() async {
@@ -153,6 +171,48 @@ class _CommutePageState extends State<CommutePage> {
               print('Destination: ${_destinationLatLng != null ? "${_destinationLatLng!.lat}, ${_destinationLatLng!.lng}" : "null"}');
 
               await _drawOriginDestinationMarker();
+            },
+          ),
+          DraggableScrollableSheet(
+            controller: _sheetController,
+            initialChildSize: 0.3,
+            minChildSize: 0.1,
+            maxChildSize: 0.9,
+            snap: false,
+            builder: (BuildContext context, ScrollController scrollController) {
+              return Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20.0),
+                  ),
+                ),
+                child: ListView(
+                  controller: scrollController,
+                  padding: EdgeInsets.zero,
+                  children: [
+                    GestureDetector(
+                      onTap: _toggleSheetPosition,
+                      behavior: HitTestBehavior.opaque,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(height: 12),
+                          Container(
+                            width: 40,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[400],
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
             },
           ),
         ],
