@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
+import 'package:para_v3/pages/commute_page_location_inputs.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'package:para_v3/services/raptor_pathfinding_service.dart';
 
@@ -61,29 +62,34 @@ class _CommutePageState extends State<CommutePage> {
   Future<void> _drawOriginDestinationMarker() async {
     if (_mapboxMap == null) return;
 
-    _circleAnnotationManager ??= await _mapboxMap!.annotations.createCircleAnnotationManager();
+    _circleAnnotationManager ??= await _mapboxMap!.annotations
+        .createCircleAnnotationManager();
     await _circleAnnotationManager!.deleteAll();
 
     final List<CircleAnnotationOptions> annotations = [];
 
     if (_originLatLng != null) {
-      annotations.add(CircleAnnotationOptions(
-        geometry: Point(coordinates: _originLatLng!),
-        circleRadius: 8.0,
-        circleColor: Colors.blue.value,
-        circleStrokeWidth: 2.0,
-        circleStrokeColor: Colors.white.value,
-      ));
+      annotations.add(
+        CircleAnnotationOptions(
+          geometry: Point(coordinates: _originLatLng!),
+          circleRadius: 8.0,
+          circleColor: Colors.blue.value,
+          circleStrokeWidth: 2.0,
+          circleStrokeColor: Colors.white.value,
+        ),
+      );
     }
 
     if (_destinationLatLng != null) {
-      annotations.add(CircleAnnotationOptions(
-        geometry: Point(coordinates: _destinationLatLng!),
-        circleRadius: 8.0,
-        circleColor: Colors.red.value,
-        circleStrokeWidth: 2.0,
-        circleStrokeColor: Colors.white.value,
-      ));
+      annotations.add(
+        CircleAnnotationOptions(
+          geometry: Point(coordinates: _destinationLatLng!),
+          circleRadius: 8.0,
+          circleColor: Colors.red.value,
+          circleStrokeWidth: 2.0,
+          circleStrokeColor: Colors.white.value,
+        ),
+      );
     }
 
     if (annotations.isNotEmpty) {
@@ -145,6 +151,50 @@ class _CommutePageState extends State<CommutePage> {
     }
   }
 
+  Widget _buildPseudoTextField({
+    required BuildContext context,
+    required IconData icon,
+    required Color iconColor,
+    required String hintText,
+    required bool isOrigin,
+  }) {
+    return GestureDetector(
+      onTap: () => _navigateToLocationInput(context, isOrigin),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 48,
+        padding: const EdgeInsets.symmetric(horizontal: 12.0),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[300]!),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: iconColor, size: 22),
+            const SizedBox(width: 10),
+            Text(
+              hintText,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 15,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _navigateToLocationInput(BuildContext context, bool isOrigin) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CommutePageLocationInput(isOrigin: isOrigin),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -167,8 +217,12 @@ class _CommutePageState extends State<CommutePage> {
                 }
               });
 
-              print('Origin: ${_originLatLng != null ? "${_originLatLng!.lat}, ${_originLatLng!.lng}" : "null"}');
-              print('Destination: ${_destinationLatLng != null ? "${_destinationLatLng!.lat}, ${_destinationLatLng!.lng}" : "null"}');
+              print(
+                'Origin: ${_originLatLng != null ? "${_originLatLng!.lat}, ${_originLatLng!.lng}" : "null"}',
+              );
+              print(
+                'Destination: ${_destinationLatLng != null ? "${_destinationLatLng!.lat}, ${_destinationLatLng!.lng}" : "null"}',
+              );
 
               await _drawOriginDestinationMarker();
             },
@@ -210,6 +264,30 @@ class _CommutePageState extends State<CommutePage> {
                         ],
                       ),
                     ),
+
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: Column(
+                        children: [
+                          _buildPseudoTextField(
+                            context: context,
+                            icon: Icons.location_on,
+                            iconColor: Colors.blue,
+                            hintText: 'Origin Location',
+                            isOrigin: true,
+                          ),
+                          const SizedBox(height: 10),
+                          _buildPseudoTextField(
+                            context: context,
+                            icon: Icons.location_on,
+                            iconColor: Colors.red,
+                            hintText: 'Target Destination',
+                            isOrigin: false,
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               );
@@ -217,7 +295,8 @@ class _CommutePageState extends State<CommutePage> {
           ),
         ],
       ),
-      floatingActionButton: (_originLatLng != null && _destinationLatLng != null)
+      floatingActionButton:
+          (_originLatLng != null && _destinationLatLng != null)
           ? FloatingActionButton(
               onPressed: _runRaptorPathfinding,
               child: const Icon(Icons.directions),
