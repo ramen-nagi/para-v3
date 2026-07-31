@@ -18,6 +18,7 @@ class _RoutesPageState extends State<RoutesPage> {
   static const int _pageSize = 10;
   int _displayedCount = _pageSize;
 
+  // Loads GTFS model RoutesModel into the page
   @override
   void initState() {
     super.initState();
