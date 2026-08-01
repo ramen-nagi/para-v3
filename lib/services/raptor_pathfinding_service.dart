@@ -65,7 +65,6 @@ class Journey {
   final List<Leg> legs;
   Journey(this.legs);
 
-  // Expose cost property if needed (can default or sum up leg costs/distance if needed, but not strictly used outside routing)
   double get cost => legs.fold(0.0, (sum, leg) => sum + (leg.distance ?? 0.0));
 }
 

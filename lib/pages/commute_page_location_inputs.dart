@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -54,6 +55,7 @@ class _CommutePageLocationInputState extends State<CommutePageLocationInput> {
   final FocusNode _destinationFocusNode = FocusNode();
 
   Timer? _debounce;
+  String? _sessionToken;
   _ActiveField _activeField = _ActiveField.none;
 
   List<PlaceSuggestion> _suggestions = [];
@@ -92,6 +94,16 @@ class _CommutePageLocationInputState extends State<CommutePageLocationInput> {
     });
   }
 
+  String _generateSessionToken() {
+    final rng = Random.secure();
+    String hex(int bytes) => List.generate(
+          bytes,
+          (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
+        ).join();
+    return '${hex(4)}-${hex(2)}-4${hex(1).substring(1)}-'  // version 4
+        '${(rng.nextInt(4) + 8).toRadixString(16)}${hex(1).substring(1)}-${hex(6)}';
+  }
+
   @override
   void dispose() {
     _debounce?.cancel();
@@ -123,9 +135,12 @@ class _CommutePageLocationInputState extends State<CommutePageLocationInput> {
       return;
     }
 
+    _sessionToken ??= _generateSessionToken();
+
     setState(() => _isLoading = true);
 
     try {
+      debugPrint('[Places Autocomplete] POST request — query: "$query" | session: $_sessionToken');
       final response = await http.post(
         Uri.parse('https://places.googleapis.com/v1/places:autocomplete'),
         headers: {
@@ -139,6 +154,19 @@ class _CommutePageLocationInputState extends State<CommutePageLocationInput> {
         body: jsonEncode({
           'input': query,
           'includedRegionCodes': ['ph'],
+          'locationRestriction': {
+            'rectangle': {
+              'low': {
+                'latitude': 14.349036807202772,
+                'longitude': 120.89298105551104,
+              },
+              'high': {
+                'latitude': 14.788314817021137,
+                'longitude': 121.14086007810187,
+              },
+            },
+          },
+          'sessionToken': _sessionToken,
         }),
       );
 
@@ -151,6 +179,7 @@ class _CommutePageLocationInputState extends State<CommutePageLocationInput> {
         return;
       }
 
+      debugPrint('[Places Autocomplete] Raw response: ${response.body}');
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final rawSuggestions = (data['suggestions'] as List?) ?? [];
 
@@ -183,6 +212,7 @@ class _CommutePageLocationInputState extends State<CommutePageLocationInput> {
       }
       _suggestions = [];
     });
+    _sessionToken = null;
     FocusScope.of(context).unfocus();
   }
 

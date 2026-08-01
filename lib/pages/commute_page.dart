@@ -165,7 +165,6 @@ class _CommutePageState extends State<CommutePage> {
         height: 48,
         padding: const EdgeInsets.symmetric(horizontal: 12.0),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.grey[300]!),
         ),
@@ -288,6 +287,10 @@ class _CommutePageState extends State<CommutePage> {
                         ],
                       ),
                     ),
+
+                    const Divider(height: 10),
+
+                    // TODO: Tappable Journey Cards here
                   ],
                 ),
               );
