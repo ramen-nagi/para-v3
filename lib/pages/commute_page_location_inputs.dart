@@ -61,6 +61,11 @@ class _CommutePageLocationInputState extends State<CommutePageLocationInput> {
   List<PlaceSuggestion> _suggestions = [];
   bool _isLoading = false;
 
+  double? _originLat;
+  double? _originLng;
+  double? _destinationLat;
+  double? _destinationLng;
+
   static const int _maxResults = 7;
   static final RegExp _metroManilaRegex = RegExp(
     r'Metro Manila',
@@ -203,7 +208,6 @@ class _CommutePageLocationInputState extends State<CommutePageLocationInput> {
   }
 
   void _onSuggestionSelected(PlaceSuggestion suggestion) {
-    // TODO: geocode suggestion.placeId into lat/lng down the line.
     setState(() {
       if (_activeField == _ActiveField.origin) {
         _originController.text = suggestion.fullText;
@@ -214,6 +218,69 @@ class _CommutePageLocationInputState extends State<CommutePageLocationInput> {
     });
     _sessionToken = null;
     FocusScope.of(context).unfocus();
+    _geocodeSelected(suggestion);
+  }
+
+  Future<void> _geocodeSelected(PlaceSuggestion suggestion) async {
+    final apiKey = dotenv.env['MAPS_PLATFORM_KEY'];
+    if (apiKey == null || apiKey.isEmpty) {
+      debugPrint('[Geocode] MAPS_PLATFORM_KEY is missing from .env');
+      return;
+    }
+
+    try {
+      print('[Geocode] Suggestion selected:');
+      print('  placeId     : ${suggestion.placeId}');
+      print('  mainText    : ${suggestion.mainText}');
+      print('  secondaryText: ${suggestion.secondaryText}');
+      print('  fullText    : ${suggestion.fullText}');
+      debugPrint('[Geocode] Fetching place details for placeId: ${suggestion.placeId}');
+      final response = await http.get(
+        Uri.parse(
+          'https://places.googleapis.com/v1/places/${suggestion.placeId}',
+        ),
+        headers: {
+          'X-Goog-Api-Key': apiKey,
+          'X-Goog-FieldMask': 'location',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        debugPrint('[Geocode] Error response: ${response.body}');
+        return;
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final location = data['location'] as Map<String, dynamic>?;
+
+      if (location == null) {
+        debugPrint('[Geocode] No location in response for placeId: ${suggestion.placeId}');
+        return;
+      }
+
+      final lat = (location['latitude'] as num).toDouble();
+      final lng = (location['longitude'] as num).toDouble();
+
+      debugPrint('[Geocode] Resolved "${suggestion.fullText}" → lat=$lat, lng=$lng');
+      print('[Geocode] ✓ Coordinates resolved:');
+      print('  place   : ${suggestion.fullText}');
+      print('  lat     : $lat');
+      print('  lng     : $lng');
+
+      if (_activeField == _ActiveField.origin) {
+        setState(() {
+          _originLat = lat;
+          _originLng = lng;
+        });
+      } else if (_activeField == _ActiveField.destination) {
+        setState(() {
+          _destinationLat = lat;
+          _destinationLng = lng;
+        });
+      }
+    } catch (e) {
+      debugPrint('[Geocode] Exception while fetching place details: $e');
+    }
   }
 
   Widget _buildLocationTextField({

@@ -290,7 +290,7 @@ class _CommutePageState extends State<CommutePage> {
 
                     const Divider(height: 10),
 
-                    // TODO: Tappable Journey Cards here
+                    // TODO: Tappable Journey Cards here where it should display stops and call map matching api (profile: walking/driving)
                   ],
                 ),
               );
