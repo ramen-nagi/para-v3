@@ -143,22 +143,327 @@ class MapMatchingService {
     await _drawPolylineAndFitCamera(map, shapePositions);
   }
 
-  static Future<void> _drawPolylineAndFitCamera(
+  static Position? getStopCoordinate(String stopId) {
+    for (final route in GtfsNetworkService.instance.routesMap.values) {
+      for (final trip in route.trips) {
+        for (final stopTime in trip.stopTimes) {
+          if (stopTime.stopId == stopId) {
+            return Position(stopTime.stopLon, stopTime.stopLat);
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  static Future<void> clearCommuteLegPolylines(MapboxMap map) async {
+    final style = map.style;
+    for (var index = 0; index < 20; index++) {
+      final layerId = 'commute-leg-layer-$index';
+      final sourceId = 'commute-leg-source-$index';
+      if (await style.styleLayerExists(layerId)) {
+        await style.removeStyleLayer(layerId);
+      }
+      if (await style.styleSourceExists(sourceId)) {
+        await style.removeStyleSource(sourceId);
+      }
+    }
+  }
+
+  static Future<List<Position>> drawCommuteLegPolyline({
+    required MapboxMap map,
+    required List<Position> coordinates,
+    required String profile,
+    required int legIndex,
+    VehicleType? vehicleType,
+    String? tripId,
+    String? fromStopName,
+    String? toStopName,
+  }) async {
+    final sourceId = 'commute-leg-source-$legIndex';
+    final layerId = 'commute-leg-layer-$legIndex';
+    final trip = tripId == null ? null : _findTripById(tripId);
+
+    if (vehicleType == VehicleType.train) {
+      if (trip == null) {
+        debugPrint('No GTFS trip found for the train leg.');
+        return _drawCommuteFallback(
+          map,
+          coordinates,
+          sourceId,
+          layerId,
+          profile,
+        );
+      }
+
+      final shapePositions = _getClippedShapePositions(
+        trip,
+        fromStopName,
+        toStopName,
+      );
+      if (shapePositions.isEmpty) {
+        debugPrint('No shape geometry found for the train leg.');
+        return _drawCommuteFallback(
+          map,
+          _getTripLegStopCoordinates(trip, fromStopName, toStopName),
+          sourceId,
+          layerId,
+          profile,
+        );
+      }
+
+      await _drawPolylineAndFitCamera(
+        map,
+        shapePositions,
+        sourceId: sourceId,
+        layerId: layerId,
+        fitCamera: false,
+      );
+      return shapePositions;
+    }
+
+    var matchingCoordinates = coordinates;
+    if (vehicleType != null && trip != null) {
+      final transitCoordinates = _getTripLegStopCoordinates(
+        trip,
+        fromStopName,
+        toStopName,
+      );
+      if (transitCoordinates.isNotEmpty) {
+        matchingCoordinates = transitCoordinates;
+      }
+    }
+
+    if (matchingCoordinates.length < 2) return [];
+
+    final formattedCoords = matchingCoordinates
+        .map((position) => '${position.lng},${position.lat}')
+        .join(';');
+    final radiusesParam = List.filled(matchingCoordinates.length, '50').join(';');
+    final accessToken = dotenv.env['MAPBOX_ACCESS_TOKEN'];
+    if (accessToken == null || accessToken.isEmpty) {
+      debugPrint('MAPBOX_ACCESS_TOKEN is missing or null.');
+      return _drawCommuteFallback(
+        map,
+        matchingCoordinates,
+        sourceId,
+        layerId,
+        profile,
+      );
+    }
+
+    final uri = Uri.parse(
+      'https://api.mapbox.com/matching/v5/mapbox/$profile/$formattedCoords'
+      '?radiuses=$radiusesParam'
+      '&geometries=geojson'
+      '&overview=full'
+      '&access_token=$accessToken',
+    );
+
+    try {
+      final response = await http.get(uri);
+      if (response.statusCode != 200) {
+        debugPrint(
+          'Mapbox $profile matching failed (${response.statusCode}): ${response.body}',
+        );
+        return _drawCommuteFallback(
+          map,
+          matchingCoordinates,
+          sourceId,
+          layerId,
+          profile,
+        );
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final matchings = data['matchings'] as List?;
+      if (matchings == null || matchings.isEmpty) {
+        debugPrint(
+          'Mapbox $profile matching returned no match: '
+          '${data['code']} ${data['message'] ?? ''}',
+        );
+        return _drawCommuteFallback(
+          map,
+          matchingCoordinates,
+          sourceId,
+          layerId,
+          profile,
+        );
+      }
+
+      final linePositions = matchings
+          .expand((matching) => matching['geometry']['coordinates'] as List)
+          .map(
+            (coordinate) => Position(
+              (coordinate[0] as num).toDouble(),
+              (coordinate[1] as num).toDouble(),
+            ),
+          )
+          .toList();
+      if (linePositions.isEmpty) return [];
+
+      await _drawPolylineAndFitCamera(
+        map,
+        linePositions,
+        sourceId: sourceId,
+        layerId: layerId,
+        lineDasharray: profile == 'walking'
+            ? const <double?>[0.1, 2.0]
+            : null,
+        fitCamera: false,
+      );
+      return linePositions;
+    } catch (e) {
+      debugPrint('Error requesting commute leg polyline: $e');
+      return _drawCommuteFallback(
+        map,
+        matchingCoordinates,
+        sourceId,
+        layerId,
+        profile,
+      );
+    }
+  }
+
+  static Future<List<Position>> _drawCommuteFallback(
+    MapboxMap map,
+    List<Position> positions,
+    String sourceId,
+    String layerId,
+    String profile,
+  ) async {
+    if (positions.length < 2) return [];
+    await _drawPolylineAndFitCamera(
+      map,
+      positions,
+      sourceId: sourceId,
+      layerId: layerId,
+      lineDasharray: profile == 'walking'
+          ? const <double?>[0.1, 2.0]
+          : null,
+      fitCamera: false,
+    );
+    return positions;
+  }
+
+  static TripsModel? _findTripById(String tripId) {
+    for (final route in GtfsNetworkService.instance.routesMap.values) {
+      for (final trip in route.trips) {
+        if (trip.tripId == tripId) return trip;
+      }
+    }
+    return null;
+  }
+
+  static List<StopsAndStopTimesModel> _getTripLegStops(
+    TripsModel trip,
+    String? fromStopName,
+    String? toStopName,
+  ) {
+    if (fromStopName == null || toStopName == null) return [];
+
+    final stops = getStopsAndStopTimes(trip);
+    final fromIndex = stops.indexWhere((stop) => stop.stopName == fromStopName);
+    if (fromIndex == -1) return [];
+
+    var toIndex = -1;
+    for (var index = fromIndex + 1; index < stops.length; index++) {
+      if (stops[index].stopName == toStopName) {
+        toIndex = index;
+        break;
+      }
+    }
+    if (toIndex == -1) return [];
+    return stops.sublist(fromIndex, toIndex + 1);
+  }
+
+  static List<Position> _getTripLegStopCoordinates(
+    TripsModel trip,
+    String? fromStopName,
+    String? toStopName,
+  ) {
+    final positions = _getTripLegStops(trip, fromStopName, toStopName)
+        .map((stop) => Position(stop.stopLon, stop.stopLat))
+        .toList();
+    if (positions.length <= 100) return positions;
+
+    return List.generate(100, (index) {
+      final sourceIndex = (index * (positions.length - 1) / 99).round();
+      return positions[sourceIndex];
+    });
+  }
+
+  static List<Position> _getClippedShapePositions(
+    TripsModel trip,
+    String? fromStopName,
+    String? toStopName,
+  ) {
+    final shapePositions = getShapesPoints(trip);
+    if (shapePositions.isEmpty) return [];
+
+    final legStops = _getTripLegStops(trip, fromStopName, toStopName);
+    if (legStops.length < 2) return [];
+    final fromPosition = Position(legStops.first.stopLon, legStops.first.stopLat);
+    final toPosition = Position(legStops.last.stopLon, legStops.last.stopLat);
+
+    final fromIndex = _nearestPositionIndex(shapePositions, fromPosition);
+    final toIndex = _nearestPositionIndex(shapePositions, toPosition);
+    if (fromIndex <= toIndex) {
+      return shapePositions.sublist(fromIndex, toIndex + 1);
+    }
+    return shapePositions.sublist(toIndex, fromIndex + 1).reversed.toList();
+  }
+
+  static int _nearestPositionIndex(
+    List<Position> positions,
+    Position target,
+  ) {
+    var nearestIndex = 0;
+    var nearestDistance = double.infinity;
+
+    for (var index = 0; index < positions.length; index++) {
+      final latDifference =
+          positions[index].lat.toDouble() - target.lat.toDouble();
+      final lngDifference =
+          positions[index].lng.toDouble() - target.lng.toDouble();
+      final distance =
+          latDifference * latDifference + lngDifference * lngDifference;
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    }
+    return nearestIndex;
+  }
+
+  static Future<void> fitCameraToPositions(
     MapboxMap map,
     List<Position> positions,
   ) async {
+    if (positions.isEmpty) return;
+    await _fitCamera(map, positions);
+  }
+
+  static Future<void> _drawPolylineAndFitCamera(
+    MapboxMap map,
+    List<Position> positions, {
+    String sourceId = 'route-line-source',
+    String layerId = 'route-line-layer',
+    List<double?>? lineDasharray,
+    bool fitCamera = true,
+  }) async {
     final style = map.style;
 
-    if (await style.styleLayerExists('route-line-layer')) {
-      await style.removeStyleLayer('route-line-layer');
+    if (await style.styleLayerExists(layerId)) {
+      await style.removeStyleLayer(layerId);
     }
-    if (await style.styleSourceExists('route-line-source')) {
-      await style.removeStyleSource('route-line-source');
+    if (await style.styleSourceExists(sourceId)) {
+      await style.removeStyleSource(sourceId);
     }
 
     await style.addSource(
       GeoJsonSource(
-        id: 'route-line-source',
+        id: sourceId,
         data: jsonEncode({
           "type": "Feature",
           "properties": {},
@@ -172,15 +477,25 @@ class MapMatchingService {
 
     await style.addLayer(
       LineLayer(
-        id: 'route-line-layer',
-        sourceId: 'route-line-source',
-        lineColor: 0xFF1976D2,
+        id: layerId,
+        sourceId: sourceId,
+        lineColor: 0xFF2196F3,
         lineWidth: 5.0,
+        lineDasharray: lineDasharray,
         lineJoin: LineJoin.ROUND,
         lineCap: LineCap.ROUND,
       ),
     );
 
+    if (fitCamera) {
+      await _fitCamera(map, positions);
+    }
+  }
+
+  static Future<void> _fitCamera(
+    MapboxMap map,
+    List<Position> positions,
+  ) async {
     final List<Point> points = positions
         .map((pos) => Point(coordinates: pos))
         .toList();

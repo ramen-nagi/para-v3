@@ -193,12 +193,16 @@ class _CommutePageState extends State<CommutePage> {
   }
 
   Future<void> _onSuggestionSelected(PlaceSuggestion suggestion) async {
+    final selectedField = _activeField;
+
     setState(() {
-      if (_activeField == _ActiveField.origin) {
+      if (selectedField == _ActiveField.origin) {
         _originSuggestion = suggestion;
+        _originLatLng = null;
         _originController.text = suggestion.fullText;
-      } else if (_activeField == _ActiveField.destination) {
+      } else if (selectedField == _ActiveField.destination) {
         _destinationSuggestion = suggestion;
+        _destinationLatLng = null;
         _destinationController.text = suggestion.fullText;
       }
       _suggestions = [];
@@ -206,7 +210,7 @@ class _CommutePageState extends State<CommutePage> {
 
     _sessionToken = null;
     FocusScope.of(context).unfocus();
-    await _geocodeSelected(suggestion);
+    await _geocodeSelected(suggestion, selectedField);
   }
 
   void _navigateToCommuteMap() {
@@ -228,7 +232,10 @@ class _CommutePageState extends State<CommutePage> {
     );
   }
 
-  Future<void> _geocodeSelected(PlaceSuggestion suggestion) async {
+  Future<void> _geocodeSelected(
+    PlaceSuggestion suggestion,
+    _ActiveField selectedField,
+  ) async {
     final apiKey = dotenv.env['MAPS_PLATFORM_KEY'];
     if (apiKey == null || apiKey.isEmpty) {
       debugPrint('[Geocode] MAPS_PLATFORM_KEY is missing from .env');
@@ -264,11 +271,11 @@ class _CommutePageState extends State<CommutePage> {
       final lat = (location['latitude'] as num).toDouble();
       final lng = (location['longitude'] as num).toDouble();
 
-      if (_activeField == _ActiveField.origin) {
+      if (selectedField == _ActiveField.origin) {
         setState(() {
           _originLatLng = Position(lng, lat);
         });
-      } else if (_activeField == _ActiveField.destination) {
+      } else if (selectedField == _ActiveField.destination) {
         setState(() {
           _destinationLatLng = Position(lng, lat);
         });
@@ -330,7 +337,10 @@ class _CommutePageState extends State<CommutePage> {
 
             FilledButton(
               onPressed:
-                  _originSuggestion != null && _destinationSuggestion != null
+                  _originSuggestion != null &&
+                      _destinationSuggestion != null &&
+                      _originLatLng != null &&
+                      _destinationLatLng != null
                   ? _navigateToCommuteMap
                   : null,
               child: const Text('Commute'),

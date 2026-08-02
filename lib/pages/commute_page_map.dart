@@ -3,6 +3,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
 import 'package:para_v3/pages/commute_page.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
+import 'package:para_v3/services/map_matching_service.dart';
 import 'package:para_v3/services/raptor_pathfinding_service.dart';
 
 class CommutePageMap extends StatefulWidget {
@@ -39,6 +40,9 @@ class _CommutePageMapState extends State<CommutePageMap> {
   final DraggableScrollableController _sheetController =
       DraggableScrollableController();
   bool _isExpanded = false;
+  bool _hasRunPathfinding = false;
+  bool _hasCompletedPathfinding = false;
+  List<Journey> _journeys = [];
 
   @override
   void initState() {
@@ -50,6 +54,9 @@ class _CommutePageMapState extends State<CommutePageMap> {
     _originController.text = _originSuggestion?.fullText ?? '';
     _destinationController.text = _destinationSuggestion?.fullText ?? '';
     GtfsNetworkService.instance.addListener(_onServiceUpdate);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _runRaptorPathfindingWhenReady();
+    });
   }
 
   @override
@@ -64,15 +71,26 @@ class _CommutePageMapState extends State<CommutePageMap> {
   void _onServiceUpdate() {
     if (mounted) {
       setState(() {});
+      _runRaptorPathfindingWhenReady();
     }
+  }
+
+  void _runRaptorPathfindingWhenReady() {
+    if (_hasRunPathfinding || !GtfsNetworkService.instance.isLoaded) {
+      return;
+    }
+
+    _hasRunPathfinding = true;
+    _runRaptorPathfinding();
   }
 
   void _onMapCreated(MapboxMap mapboxMap) {
     _mapboxMap = mapboxMap;
+    _drawOriginDestinationMarker();
   }
 
   void _toggleSheetPosition() {
-    final double targetSize = _isExpanded ? 0.3 : 0.9;
+    final double targetSize = _isExpanded ? 0.2 : 0.9;
 
     _sheetController.animateTo(
       targetSize,
@@ -85,7 +103,7 @@ class _CommutePageMapState extends State<CommutePageMap> {
     });
   }
 
-  Future<void> _drawOriginDestinationMarker() async {
+  Future<void> _drawOriginDestinationMarker({Journey? journey}) async {
     if (_mapboxMap == null) return;
 
     _circleAnnotationManager ??= await _mapboxMap!.annotations
@@ -118,6 +136,32 @@ class _CommutePageMapState extends State<CommutePageMap> {
       );
     }
 
+    if (journey != null) {
+      final significantStopIds = <String>{};
+      for (final leg in journey.legs) {
+        if (!leg.fromStopId.startsWith('__')) {
+          significantStopIds.add(leg.fromStopId);
+        }
+        if (!leg.toStopId.startsWith('__')) {
+          significantStopIds.add(leg.toStopId);
+        }
+      }
+
+      for (final stopId in significantStopIds) {
+        final position = _positionForLegStop(stopId);
+        if (position == null) continue;
+        annotations.add(
+          CircleAnnotationOptions(
+            geometry: Point(coordinates: position),
+            circleRadius: 5.0,
+            circleColor: 0xFF2196F3,
+            circleStrokeWidth: 2.0,
+            circleStrokeColor: 0xFFFAF9F6,
+          ),
+        );
+      }
+    }
+
     if (annotations.isNotEmpty) {
       await _circleAnnotationManager!.createMulti(annotations);
     }
@@ -126,7 +170,6 @@ class _CommutePageMapState extends State<CommutePageMap> {
   void _runRaptorPathfinding() {
     if (_originLatLng == null || _destinationLatLng == null) return;
 
-    print('Running RAPTOR Pathfinding...');
     final journeys = RaptorPathfindingService.instance.findJourneys(
       originLat: _originLatLng!.lat.toDouble(),
       originLng: _originLatLng!.lng.toDouble(),
@@ -134,30 +177,10 @@ class _CommutePageMapState extends State<CommutePageMap> {
       destLng: _destinationLatLng!.lng.toDouble(),
     );
 
-    if (journeys.isEmpty) {
-      print('No journeys found.');
-      return;
-    }
-
-    for (int i = 0; i < journeys.length; i++) {
-      final journey = journeys[i];
-      print('Journey ${i + 1}');
-      for (int j = 0; j < journey.legs.length; j++) {
-        final leg = journey.legs[j];
-        final numStr = '${j + 1}.';
-        if (leg is WalkLeg) {
-          print('$numStr Walk');
-          print('from ${leg.fromStopName}');
-          print('to ${leg.toStopName}');
-        } else if (leg is TransitLeg) {
-          final typeStr = _getVehicleTypeString(leg.vehicleType);
-          print('$numStr $typeStr (${leg.routeLongName})');
-          print('from ${leg.fromStopName}');
-          print('to ${leg.toStopName}');
-        }
-      }
-      print('');
-    }
+    setState(() {
+      _journeys = journeys.take(3).toList();
+      _hasCompletedPathfinding = true;
+    });
   }
 
   String _getVehicleTypeString(VehicleType type) {
@@ -197,6 +220,97 @@ class _CommutePageMapState extends State<CommutePageMap> {
     );
   }
 
+  Widget _buildJourneyCard(Journey journey, int journeyIndex) {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Journey ${journeyIndex + 1}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            for (var index = 0; index < journey.legs.length; index++)
+              _buildJourneyLeg(journey.legs[index], index),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJourneyLeg(Leg leg, int legIndex) {
+    final String title;
+    final String fromStopName;
+    final String toStopName;
+
+    if (leg is WalkLeg) {
+      title = '${legIndex + 1}. Walk';
+      fromStopName = leg.fromStopName;
+      toStopName = leg.toStopName;
+    } else if (leg is TransitLeg) {
+      title = '${legIndex + 1}. '
+          '${_getVehicleTypeString(leg.vehicleType)} (${leg.routeLongName})';
+      fromStopName = leg.fromStopName;
+      toStopName = leg.toStopName;
+    } else {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title),
+          Text('from $fromStopName'),
+          Text('to $toStopName'),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _drawJourneyPolylines(Journey journey) async {
+    final map = _mapboxMap;
+    if (map == null) return;
+
+    await _drawOriginDestinationMarker(journey: journey);
+    await MapMatchingService.clearCommuteLegPolylines(map);
+    final journeyPositions = <Position>[];
+
+    for (var index = 0; index < journey.legs.length; index++) {
+      final leg = journey.legs[index];
+      final fromPosition = _positionForLegStop(leg.fromStopId);
+      final toPosition = _positionForLegStop(leg.toStopId);
+      if (fromPosition == null || toPosition == null) {
+        debugPrint('Unable to find coordinates for commute leg $index.');
+        continue;
+      }
+
+      final legPositions = await MapMatchingService.drawCommuteLegPolyline(
+        map: map,
+        coordinates: [fromPosition, toPosition],
+        profile: leg is WalkLeg ? 'walking' : 'driving',
+        vehicleType: leg is TransitLeg ? leg.vehicleType : null,
+        tripId: leg is TransitLeg ? leg.tripId : null,
+        fromStopName: leg is TransitLeg ? leg.fromStopName : null,
+        toStopName: leg is TransitLeg ? leg.toStopName : null,
+        legIndex: index,
+      );
+      journeyPositions.addAll(legPositions);
+    }
+
+    await MapMatchingService.fitCameraToPositions(map, journeyPositions);
+  }
+
+  Position? _positionForLegStop(String stopId) {
+    if (stopId == '__ORIGIN__') return _originLatLng;
+    if (stopId == '__DESTINATION__') return _destinationLatLng;
+    return MapMatchingService.getStopCoordinate(stopId);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -206,28 +320,6 @@ class _CommutePageMapState extends State<CommutePageMap> {
             key: const PageStorageKey("CommuteMapTile"),
             initialZoom: 12.0,
             onMapCreated: _onMapCreated,
-            onLongTap: (Point point) async {
-              final coordinates = point.coordinates;
-              setState(() {
-                if (_originLatLng == null) {
-                  _originLatLng = coordinates;
-                } else if (_destinationLatLng == null) {
-                  _destinationLatLng = coordinates;
-                } else {
-                  _originLatLng = null;
-                  _destinationLatLng = null;
-                }
-              });
-
-              print(
-                'Origin: ${_originLatLng != null ? "${_originLatLng!.lat}, ${_originLatLng!.lng}" : "null"}',
-              );
-              print(
-                'Destination: ${_destinationLatLng != null ? "${_destinationLatLng!.lat}, ${_destinationLatLng!.lng}" : "null"}',
-              );
-
-              await _drawOriginDestinationMarker();
-            },
           ),
           DraggableScrollableSheet(
             controller: _sheetController,
@@ -291,7 +383,17 @@ class _CommutePageMapState extends State<CommutePageMap> {
 
                     const Divider(height: 10),
 
-                    // TODO: Tappable Journey Cards here where it should display stops and call map matching api (profile: walking/driving)
+                    if (_hasCompletedPathfinding && _journeys.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('No journeys found.'),
+                      ),
+                    for (var index = 0; index < _journeys.length; index++)
+                      GestureDetector(
+                        onTap: () => _drawJourneyPolylines(_journeys[index]),
+                        child: _buildJourneyCard(_journeys[index], index),
+                      ),
+                    const SizedBox(height: 16),
                   ],
                 ),
               );

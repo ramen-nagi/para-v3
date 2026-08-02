@@ -142,7 +142,6 @@ class GtfsNetworkService extends ChangeNotifier {
       isLoaded = true;
       isDownloading = false;
       notifyListeners();
-      debugPrint('GTFS Dataset successfully loaded into memory via Isolate!');
     } catch (e) {
       isDownloading = false;
       notifyListeners();

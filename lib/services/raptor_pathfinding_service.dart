@@ -40,6 +40,7 @@ class WalkLeg extends Leg {
 }
 
 class TransitLeg extends Leg {
+  final String tripId;
   final String routeLongName;
   final VehicleType vehicleType;
   final String fromStopName;
@@ -49,6 +50,7 @@ class TransitLeg extends Leg {
     required super.fromStopId,
     required super.toStopId,
     required super.routeId,
+    required this.tripId,
     required super.distance,
     required this.routeLongName,
     required this.vehicleType,
@@ -70,6 +72,7 @@ class Journey {
 
 class RaptorRoute {
   final String routeId;
+  final String tripId;
   final String routeLongName;
   final VehicleType vehicleType;
   final List<StopsAndStopTimesModel> stops;
@@ -77,6 +80,7 @@ class RaptorRoute {
 
   RaptorRoute({
     required this.routeId,
+    required this.tripId,
     required this.routeLongName,
     required this.vehicleType,
     required this.stops,
@@ -194,6 +198,7 @@ class RaptorPathfindingService {
           final raptorRouteId = '${route.routeId}_p${seenSequences.length}';
           final rr = RaptorRoute(
             routeId: raptorRouteId,
+            tripId: trip.tripId,
             routeLongName: route.routeLongName,
             vehicleType: route.vehicleType,
             stops: sortedStops,
@@ -590,6 +595,7 @@ class RaptorPathfindingService {
             fromStopId: parent.fromStopId,
             toStopId: currentStopId,
             routeId: parent.routeId!,
+            tripId: rr?.tripId ?? '',
             distance: transitDist,
             routeLongName: rr?.routeLongName ?? 'Unknown Route',
             vehicleType: rr?.vehicleType ?? VehicleType.bus,
