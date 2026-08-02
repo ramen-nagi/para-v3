@@ -1,310 +1,367 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-import 'package:para_v3/module/universal_map_tile.dart';
-import 'package:para_v3/pages/commute_page_location_inputs.dart';
-import 'package:para_v3/services/gtfs_network_service.dart';
-import 'package:para_v3/services/raptor_pathfinding_service.dart';
+import 'package:para_v3/pages/commute_page_map.dart';
+
+enum _ActiveField { origin, destination, none }
+
+class PlaceSuggestion {
+  final String placeId;
+  final String mainText;
+  final String secondaryText;
+  final String fullText;
+
+  PlaceSuggestion({
+    required this.placeId,
+    required this.mainText,
+    required this.secondaryText,
+    required this.fullText,
+  });
+
+  factory PlaceSuggestion.fromJson(Map<String, dynamic> json) {
+    final placePrediction = json['placePrediction'];
+    final structuredFormat = placePrediction['structuredFormat'];
+
+    return PlaceSuggestion(
+      placeId: placePrediction['placeId'] ?? '',
+      mainText: structuredFormat?['mainText']?['text'] ?? '',
+      secondaryText: structuredFormat?['secondaryText']?['text'] ?? '',
+      fullText: placePrediction['text']?['text'] ?? '',
+    );
+  }
+}
 
 class CommutePage extends StatefulWidget {
-  const CommutePage({super.key});
+  const CommutePage({
+    super.key,
+  });
 
   @override
   State<CommutePage> createState() => _CommutePageState();
 }
 
 class _CommutePageState extends State<CommutePage> {
-  // ignore: unused_field
-  MapboxMap? _mapboxMap;
+  PlaceSuggestion? _originSuggestion;
+  PlaceSuggestion? _destinationSuggestion;
   Position? _originLatLng;
   Position? _destinationLatLng;
-  CircleAnnotationManager? _circleAnnotationManager;
-  final DraggableScrollableController _sheetController =
-      DraggableScrollableController();
-  bool _isExpanded = false;
+
+  final TextEditingController _originController = TextEditingController();
+  final TextEditingController _destinationController = TextEditingController();
+
+  final FocusNode _originFocusNode = FocusNode();
+  final FocusNode _destinationFocusNode = FocusNode();
+
+  Timer? _debounce;
+  String? _sessionToken;
+  _ActiveField _activeField = _ActiveField.none;
+
+  List<PlaceSuggestion> _suggestions = [];
+  bool _isLoading = false;
+
+  static const int _maxResults = 5;
+  static final RegExp _metroManilaRegex = RegExp(
+    r'Metro Manila',
+    caseSensitive: false,
+  );
 
   @override
   void initState() {
     super.initState();
-    GtfsNetworkService.instance.addListener(_onServiceUpdate);
+
+    _originFocusNode.addListener(() {
+      if (_originFocusNode.hasFocus) {
+        setState(() => _activeField = _ActiveField.origin);
+      }
+    });
+
+    _destinationFocusNode.addListener(() {
+      if (_destinationFocusNode.hasFocus) {
+        setState(() => _activeField = _ActiveField.destination);
+      }
+    });
+  }
+
+  String _generateSessionToken() {
+    final rng = Random.secure();
+    String hex(int bytes) => List.generate(
+      bytes,
+      (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    return '${hex(4)}-${hex(2)}-4${hex(1).substring(1)}-'
+        '${(rng.nextInt(4) + 8).toRadixString(16)}${hex(1).substring(1)}-${hex(6)}';
   }
 
   @override
   void dispose() {
-    GtfsNetworkService.instance.removeListener(_onServiceUpdate);
-    _sheetController.dispose();
+    _debounce?.cancel();
+    _originController.dispose();
+    _destinationController.dispose();
+    _originFocusNode.dispose();
+    _destinationFocusNode.dispose();
     super.dispose();
   }
 
-  void _onServiceUpdate() {
-    if (mounted) {
-      setState(() {});
-    }
-  }
+  void _onQueryChanged(String query) {
+    _debounce?.cancel();
 
-  void _onMapCreated(MapboxMap mapboxMap) {
-    _mapboxMap = mapboxMap;
-  }
-
-  void _toggleSheetPosition() {
-    final double targetSize = _isExpanded ? 0.3 : 0.9;
-
-    _sheetController.animateTo(
-      targetSize,
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-    );
-
-    setState(() {
-      _isExpanded = !_isExpanded;
-    });
-  }
-
-  Future<void> _drawOriginDestinationMarker() async {
-    if (_mapboxMap == null) return;
-
-    _circleAnnotationManager ??= await _mapboxMap!.annotations
-        .createCircleAnnotationManager();
-    await _circleAnnotationManager!.deleteAll();
-
-    final List<CircleAnnotationOptions> annotations = [];
-
-    if (_originLatLng != null) {
-      annotations.add(
-        CircleAnnotationOptions(
-          geometry: Point(coordinates: _originLatLng!),
-          circleRadius: 8.0,
-          circleColor: Colors.blue.value,
-          circleStrokeWidth: 2.0,
-          circleStrokeColor: Colors.white.value,
-        ),
-      );
-    }
-
-    if (_destinationLatLng != null) {
-      annotations.add(
-        CircleAnnotationOptions(
-          geometry: Point(coordinates: _destinationLatLng!),
-          circleRadius: 8.0,
-          circleColor: Colors.red.value,
-          circleStrokeWidth: 2.0,
-          circleStrokeColor: Colors.white.value,
-        ),
-      );
-    }
-
-    if (annotations.isNotEmpty) {
-      await _circleAnnotationManager!.createMulti(annotations);
-    }
-  }
-
-  void _runRaptorPathfinding() {
-    if (_originLatLng == null || _destinationLatLng == null) return;
-
-    print('Running RAPTOR Pathfinding...');
-    final journeys = RaptorPathfindingService.instance.findJourneys(
-      originLat: _originLatLng!.lat.toDouble(),
-      originLng: _originLatLng!.lng.toDouble(),
-      destLat: _destinationLatLng!.lat.toDouble(),
-      destLng: _destinationLatLng!.lng.toDouble(),
-    );
-
-    if (journeys.isEmpty) {
-      print('No journeys found.');
+    if (query.trim().isEmpty) {
+      setState(() => _suggestions = []);
       return;
     }
 
-    for (int i = 0; i < journeys.length; i++) {
-      final journey = journeys[i];
-      print('Journey ${i + 1}');
-      for (int j = 0; j < journey.legs.length; j++) {
-        final leg = journey.legs[j];
-        final numStr = '${j + 1}.';
-        if (leg is WalkLeg) {
-          print('$numStr Walk');
-          print('from ${leg.fromStopName}');
-          print('to ${leg.toStopName}');
-        } else if (leg is TransitLeg) {
-          final typeStr = _getVehicleTypeString(leg.vehicleType);
-          print('$numStr $typeStr (${leg.routeLongName})');
-          print('from ${leg.fromStopName}');
-          print('to ${leg.toStopName}');
-        }
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      _fetchAutocompleteSuggestions(query);
+    });
+  }
+
+  Future<void> _fetchAutocompleteSuggestions(String query) async {
+    final apiKey = dotenv.env['MAPS_PLATFORM_KEY'];
+
+    if (apiKey == null || apiKey.isEmpty) {
+      debugPrint('MAPS_PLATFORM_KEY is missing from .env');
+      return;
+    }
+
+    _sessionToken ??= _generateSessionToken();
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse('https://places.googleapis.com/v1/places:autocomplete'),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': apiKey,
+          'X-Goog-FieldMask':
+              'suggestions.placePrediction.placeId,'
+              'suggestions.placePrediction.text,'
+              'suggestions.placePrediction.structuredFormat',
+        },
+        body: jsonEncode({
+          'input': query,
+          'includedRegionCodes': ['ph'],
+          'locationRestriction': {
+            'rectangle': {
+              'low': {
+                'latitude': 14.349036807202772,
+                'longitude': 120.89298105551104,
+              },
+              'high': {
+                'latitude': 14.788314817021137,
+                'longitude': 121.14086007810187,
+              },
+            },
+          },
+          'sessionToken': _sessionToken,
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        debugPrint('Places Autocomplete error: ${response.body}');
+        setState(() {
+          _suggestions = [];
+          _isLoading = false;
+        });
+        return;
       }
-      print('');
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final rawSuggestions = (data['suggestions'] as List?) ?? [];
+
+      final parsed = rawSuggestions
+          .map((s) => PlaceSuggestion.fromJson(s as Map<String, dynamic>))
+          .where((s) => _metroManilaRegex.hasMatch(s.fullText))
+          .take(_maxResults)
+          .toList();
+
+      setState(() {
+        _suggestions = parsed;
+        _isLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Places Autocomplete exception: $e');
+      setState(() {
+        _suggestions = [];
+        _isLoading = false;
+      });
     }
   }
 
-  String _getVehicleTypeString(VehicleType type) {
-    switch (type) {
-      case VehicleType.tricycle:
-        return 'Tricycle';
-      case VehicleType.train:
-        return 'Train';
-      case VehicleType.jeep:
-        return 'Jeep';
-      case VehicleType.bus:
-        return 'Bus';
-      case VehicleType.uvExpress:
-        return 'UV Express';
-      default:
-        return 'Transit';
-    }
+  Future<void> _onSuggestionSelected(PlaceSuggestion suggestion) async {
+    setState(() {
+      if (_activeField == _ActiveField.origin) {
+        _originSuggestion = suggestion;
+        _originController.text = suggestion.fullText;
+      } else if (_activeField == _ActiveField.destination) {
+        _destinationSuggestion = suggestion;
+        _destinationController.text = suggestion.fullText;
+      }
+      _suggestions = [];
+    });
+
+    _sessionToken = null;
+    FocusScope.of(context).unfocus();
+    await _geocodeSelected(suggestion);
   }
 
-  Widget _buildPseudoTextField({
-    required BuildContext context,
-    required IconData icon,
-    required Color iconColor,
-    required String hintText,
-    required bool isOrigin,
-  }) {
-    return GestureDetector(
-      onTap: () => _navigateToLocationInput(context, isOrigin),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        height: 48,
-        padding: const EdgeInsets.symmetric(horizontal: 12.0),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey[300]!),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: iconColor, size: 22),
-            const SizedBox(width: 10),
-            Text(
-              hintText,
-              style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 15,
-              ),
-            ),
-          ],
+  void _navigateToCommuteMap() {
+    final originSuggestion = _originSuggestion;
+    final destinationSuggestion = _destinationSuggestion;
+    if (originSuggestion == null || destinationSuggestion == null) {
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => CommutePageMap(
+          originSuggestion: originSuggestion,
+          destinationSuggestion: destinationSuggestion,
+          originLatLng: _originLatLng,
+          destinationLatLng: _destinationLatLng,
         ),
       ),
     );
   }
 
-  void _navigateToLocationInput(BuildContext context, bool isOrigin) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => CommutePageLocationInput(isOrigin: isOrigin),
+  Future<void> _geocodeSelected(PlaceSuggestion suggestion) async {
+    final apiKey = dotenv.env['MAPS_PLATFORM_KEY'];
+    if (apiKey == null || apiKey.isEmpty) {
+      debugPrint('[Geocode] MAPS_PLATFORM_KEY is missing from .env');
+      return;
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse(
+          'https://places.googleapis.com/v1/places/${suggestion.placeId}',
+        ),
+        headers: {
+          'X-Goog-Api-Key': apiKey,
+          'X-Goog-FieldMask': 'location',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        debugPrint('[Geocode] Error response: ${response.body}');
+        return;
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final location = data['location'] as Map<String, dynamic>?;
+
+      if (location == null) {
+        debugPrint(
+          '[Geocode] No location in response for placeId: ${suggestion.placeId}',
+        );
+        return;
+      }
+
+      final lat = (location['latitude'] as num).toDouble();
+      final lng = (location['longitude'] as num).toDouble();
+
+      if (_activeField == _ActiveField.origin) {
+        setState(() {
+          _originLatLng = Position(lng, lat);
+        });
+      } else if (_activeField == _ActiveField.destination) {
+        setState(() {
+          _destinationLatLng = Position(lng, lat);
+        });
+      }
+    } catch (e) {
+      debugPrint('[Geocode] Exception while fetching place details: $e');
+    }
+  }
+
+  Widget _buildLocationTextField({
+    required TextEditingController controller,
+    required FocusNode focusNode,
+    required IconData icon,
+    required Color iconColor,
+    required String hintText,
+  }) {
+    return TextField(
+      controller: controller,
+      focusNode: focusNode,
+      decoration: InputDecoration(
+        prefixIcon: Icon(icon, color: iconColor),
+        hintText: hintText,
+        filled: true,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
       ),
+      onChanged: _onQueryChanged,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          UniversalMapTile(
-            key: const PageStorageKey("CommuteMapTile"),
-            initialZoom: 12.0,
-            onMapCreated: _onMapCreated,
-            onLongTap: (Point point) async {
-              final coordinates = point.coordinates;
-              setState(() {
-                if (_originLatLng == null) {
-                  _originLatLng = coordinates;
-                } else if (_destinationLatLng == null) {
-                  _destinationLatLng = coordinates;
-                } else {
-                  _originLatLng = null;
-                  _destinationLatLng = null;
-                }
-              });
-
-              print(
-                'Origin: ${_originLatLng != null ? "${_originLatLng!.lat}, ${_originLatLng!.lng}" : "null"}',
-              );
-              print(
-                'Destination: ${_destinationLatLng != null ? "${_destinationLatLng!.lat}, ${_destinationLatLng!.lng}" : "null"}',
-              );
-
-              await _drawOriginDestinationMarker();
-            },
-          ),
-          DraggableScrollableSheet(
-            controller: _sheetController,
-            initialChildSize: 0.3,
-            minChildSize: 0.1,
-            maxChildSize: 0.9,
-            snap: false,
-            builder: (BuildContext context, ScrollController scrollController) {
-              return Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).scaffoldBackgroundColor,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(20.0),
-                  ),
-                ),
-                child: ListView(
-                  controller: scrollController,
-                  padding: EdgeInsets.zero,
-                  children: [
-                    GestureDetector(
-                      onTap: _toggleSheetPosition,
-                      behavior: HitTestBehavior.opaque,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(height: 12),
-                          Container(
-                            width: 40,
-                            height: 5,
-                            decoration: BoxDecoration(
-                              color: Colors.grey[400],
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                      ),
-                    ),
-
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Column(
-                        children: [
-                          _buildPseudoTextField(
-                            context: context,
-                            icon: Icons.location_on,
-                            iconColor: Colors.blue,
-                            hintText: 'Origin Location',
-                            isOrigin: true,
-                          ),
-                          const SizedBox(height: 10),
-                          _buildPseudoTextField(
-                            context: context,
-                            icon: Icons.location_on,
-                            iconColor: Colors.red,
-                            hintText: 'Target Destination',
-                            isOrigin: false,
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                      ),
-                    ),
-
-                    const Divider(height: 10),
-
-                    // TODO: Tappable Journey Cards here where it should display stops and call map matching api (profile: walking/driving)
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
+      appBar: AppBar(
+        title: const Text('Set Locations'),
       ),
-      floatingActionButton:
-          (_originLatLng != null && _destinationLatLng != null)
-          ? FloatingActionButton(
-              onPressed: _runRaptorPathfinding,
-              child: const Icon(Icons.directions),
-            )
-          : null,
+      body: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        child: Column(
+          children: [
+            _buildLocationTextField(
+              controller: _originController,
+              focusNode: _originFocusNode,
+              icon: Icons.location_on,
+              iconColor: Colors.blue,
+              hintText: 'Origin Location',
+            ),
+            const SizedBox(height: 12),
+            _buildLocationTextField(
+              controller: _destinationController,
+              focusNode: _destinationFocusNode,
+              icon: Icons.location_on,
+              iconColor: Colors.red,
+              hintText: 'Target Destination',
+            ),
+            const SizedBox(height: 12),
+
+            FilledButton(
+              onPressed:
+                  _originSuggestion != null && _destinationSuggestion != null
+                  ? _navigateToCommuteMap
+                  : null,
+              child: const Text('Commute'),
+            ),
+            const SizedBox(height: 12),
+
+            const Divider(height: 1),
+            if (_isLoading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16.0),
+                child: CircularProgressIndicator(),
+              )
+            else
+              Expanded(
+                child: ListView.builder(
+                  padding: EdgeInsets.zero,
+                  itemCount: _suggestions.length,
+                  itemBuilder: (context, index) {
+                    final suggestion = _suggestions[index];
+                    return ListTile(
+                      leading: const Icon(Icons.location_on_outlined),
+                      title: Text(suggestion.mainText),
+                      subtitle: Text(suggestion.secondaryText),
+                      onTap: () => _onSuggestionSelected(suggestion),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

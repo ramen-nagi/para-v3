@@ -37,6 +37,8 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
       infiniteBounds: false,
     );
 
+    // TODO: Add circular button for toggle traffic layer
+
     return MapWidget(
       key: const ValueKey("UniversalMapWidget"),
       cameraOptions: CameraOptions(
