@@ -6,6 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/pages/commute_page_map.dart';
+import 'package:para_v3/pages/commute_test.dart';
 
 enum _ActiveField { origin, destination, none }
 
@@ -371,6 +372,13 @@ class _CommutePageState extends State<CommutePage> {
               ),
           ],
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (context) => const Commute()),
+          );
+        },
       ),
     );
   }

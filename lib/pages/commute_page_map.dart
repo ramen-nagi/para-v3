@@ -87,6 +87,27 @@ class _CommutePageMapState extends State<CommutePageMap> {
   void _onMapCreated(MapboxMap mapboxMap) {
     _mapboxMap = mapboxMap;
     _drawOriginDestinationMarker();
+    _fitCameraToOriginAndDestination();
+  }
+
+  Future<void> _fitCameraToOriginAndDestination() async {
+    final map = _mapboxMap;
+    final origin = _originLatLng;
+    final destination = _destinationLatLng;
+    if (map == null || origin == null || destination == null) return;
+
+    final cameraOptions = await map.cameraForCoordinatesPadding(
+      [Point(coordinates: origin), Point(coordinates: destination)],
+      CameraOptions(),
+      MbxEdgeInsets(top: 50, left: 50, bottom: 250, right: 50),
+      null,
+      null,
+    );
+
+    await map.easeTo(
+      cameraOptions,
+      MapAnimationOptions(duration: 750),
+    );
   }
 
   void _toggleSheetPosition() {
@@ -101,6 +122,10 @@ class _CommutePageMapState extends State<CommutePageMap> {
     setState(() {
       _isExpanded = !_isExpanded;
     });
+  }
+
+  void _goBackToPreviousPage() {
+    Navigator.of(context).pop();
   }
 
   Future<void> _drawOriginDestinationMarker({Journey? journey}) async {
@@ -208,6 +233,8 @@ class _CommutePageMapState extends State<CommutePageMap> {
   }) {
     return TextField(
       controller: controller,
+      readOnly: true,
+      onTap: _goBackToPreviousPage,
       decoration: InputDecoration(
         prefixIcon: Icon(icon, color: iconColor),
         hintText: hintText,
@@ -220,6 +247,7 @@ class _CommutePageMapState extends State<CommutePageMap> {
     );
   }
 
+  // TODO: make journey cards neater ui-wise
   Widget _buildJourneyCard(Journey journey, int journeyIndex) {
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -235,6 +263,15 @@ class _CommutePageMapState extends State<CommutePageMap> {
             const SizedBox(height: 12),
             for (var index = 0; index < journey.legs.length; index++)
               _buildJourneyLeg(journey.legs[index], index),
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                onPressed: () {},
+                icon: const Icon(Icons.navigation),
+                label: const Text('Start Commute'),
+              ),
+            ),
           ],
         ),
       ),
@@ -321,9 +358,27 @@ class _CommutePageMapState extends State<CommutePageMap> {
             initialZoom: 12.0,
             onMapCreated: _onMapCreated,
           ),
+          Positioned(
+            top: MediaQuery.paddingOf(context).top + 12,
+            left: 16,
+            child: Material(
+              color: Theme.of(context).colorScheme.surface,
+              shape: const CircleBorder(),
+              elevation: 4,
+              child: SizedBox.square(
+                dimension: 48,
+                child: IconButton(
+                  alignment: Alignment.center,
+                  padding: EdgeInsets.zero,
+                  onPressed: _goBackToPreviousPage,
+                  icon: const Icon(Icons.arrow_back_ios),
+                ),
+              ),
+            ),
+          ),
           DraggableScrollableSheet(
             controller: _sheetController,
-            initialChildSize: 0.3,
+            initialChildSize: 0.2,
             minChildSize: 0.1,
             maxChildSize: 0.9,
             snap: false,
