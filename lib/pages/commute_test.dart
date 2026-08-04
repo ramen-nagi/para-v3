@@ -55,7 +55,9 @@ class _CommuteState extends State<Commute> {
   Position? _originLatLng;
   Position? _destinationLatLng;
 
-  int _journeyCount = 0;
+  List<Journey> _journeys = [];
+  Journey? _selectedJourney;
+
   bool _isRaptorLoading = false;
   int _raptorRequestId = 0;
   int _originGeocodeRequestId = 0;
@@ -133,7 +135,7 @@ class _CommuteState extends State<Commute> {
         Point(coordinates: originLatLng),
         Point(coordinates: destinationLatLng),
       ],
-      MbxEdgeInsets(top: 300, left: 60, bottom: 300, right: 60),
+      MbxEdgeInsets(top: 200, left: 60, bottom: 200, right: 60),
       null,
       null,
     );
@@ -305,69 +307,40 @@ class _CommuteState extends State<Commute> {
       await _fitOriginDestInCamera(_originLatLng, _destinationLatLng);
 
       if (_originLatLng != null && _destinationLatLng != null) {
-        _runRaptorPathfinding();
+        final raptorRequestId = ++_raptorRequestId;
+        setState(() => _isRaptorLoading = true);
+        final journeys = await _runRaptorPathfinding();
+        if (!mounted || raptorRequestId != _raptorRequestId) return;
+        setState(() {
+          _journeys = journeys;
+          _selectedJourney = null;
+          _isRaptorLoading = false;
+        });
       }
     } catch (e) {
       debugPrint('[Geocode] Exception while fetching place details: $e');
     }
   }
 
-  Future<void> _runRaptorPathfinding() async {
+  Future<List<Journey>> _runRaptorPathfinding() async {
     final origin = _originLatLng;
     final destination = _destinationLatLng;
 
     if (origin == null || destination == null) {
-      print('Select and geocode both origin and destination first.');
-      return;
+      return [];
     }
     if (!GtfsNetworkService.instance.isLoaded) {
-      print('GTFS dataset has not loaded yet.');
-      setState(() => _isRaptorLoading = false);
-      return;
+      return [];
     }
 
-    final requestId = ++_raptorRequestId;
-    setState(() => _isRaptorLoading = true);
     await Future<void>.delayed(Duration.zero);
-    if (!mounted || requestId != _raptorRequestId) return;
 
-    final journeys = RaptorPathfindingService.instance.findJourneys(
+    return RaptorPathfindingService.instance.findJourneys(
       originLat: origin.lat.toDouble(),
       originLng: origin.lng.toDouble(),
       destLat: destination.lat.toDouble(),
       destLng: destination.lng.toDouble(),
     );
-
-    if (!mounted || requestId != _raptorRequestId) return;
-    setState(() {
-      _journeyCount = journeys.length;
-      _isRaptorLoading = false;
-    });
-
-    if (journeys.isEmpty) {
-      print('No journeys found.');
-      return;
-    }
-
-    for (var journeyIndex = 0; journeyIndex < journeys.length; journeyIndex++) {
-      final journey = journeys[journeyIndex];
-      print('Journey ${journeyIndex + 1}');
-      for (var legIndex = 0; legIndex < journey.legs.length; legIndex++) {
-        final leg = journey.legs[legIndex];
-        if (leg is WalkLeg) {
-          print('${legIndex + 1}. Walk');
-          print('from ${leg.fromStopName}');
-          print('to ${leg.toStopName}');
-        } else if (leg is TransitLeg) {
-          print(
-            '${legIndex + 1}. '
-            '${_getVehicleTypeString(leg.vehicleType)} (${leg.routeLongName})',
-          );
-          print('from ${leg.fromStopName}');
-          print('to ${leg.toStopName}');
-        }
-      }
-    }
   }
 
   String _getVehicleTypeString(VehicleType type) {
@@ -385,19 +358,6 @@ class _CommuteState extends State<Commute> {
       default:
         return 'Transit';
     }
-  }
-
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    final pendingSuggestions = _pendingSuggestions;
-    if (pendingSuggestions != null && !pendingSuggestions.isCompleted) {
-      pendingSuggestions.complete(<PlaceSuggestion>[]);
-    }
-    _originSearchController.dispose();
-    _destinationSearchController.dispose();
-    _sheetController.dispose();
-    super.dispose();
   }
 
   Widget _buildSearchAnchorBar(
@@ -448,7 +408,7 @@ class _CommuteState extends State<Commute> {
   Widget _draggableSheet() {
     return DraggableScrollableSheet(
       controller: _sheetController,
-      initialChildSize: 0.1,
+      initialChildSize: 0.8,
       minChildSize: 0.1,
       maxChildSize: 0.8,
       snapSizes: const [0.1, 0.8],
@@ -487,18 +447,171 @@ class _CommuteState extends State<Commute> {
               if (_isRaptorLoading)
                 const Center(child: CircularProgressIndicator())
               else
-                Text(
-                  '$_journeyCount '
-                  '${_journeyCount == 1 ? 'Journey' : 'Journeys'} Found',
-                ),
+                Text('${_journeys.length} Journeys Found'),
               const SizedBox(height: 20),
               const Divider(height: 10),
-              // TODO: Add journey cards
+
+              for (final journey in _journeys)
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => setState(() => _selectedJourney = journey),
+                  child: _buildJourneyCard(
+                    journey,
+                    isSelected: identical(_selectedJourney, journey),
+                  ),
+                ),
             ],
           ),
         );
       },
     );
+  }
+
+  Widget _buildJourneyCard(Journey journey, {required bool isSelected}) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: const EdgeInsets.only(top: 10),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isSelected ? colorScheme.primary : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Total distance'),
+                Text('Walking distance'),
+                Text('Total fare'),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            if (isSelected)
+              _buildJourneyDetails(journey)
+            else
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final leg in journey.legs)
+                      Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color:
+                              Theme.of(context).colorScheme.surfaceContainer,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          leg is TransitLeg
+                              ? _getVehicleTypeString(leg.vehicleType)
+                              : 'Walk',
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJourneyDetails(Journey journey) {
+    final destinationText = _destinationSelected?.mainText ?? 'Destination';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildTimelineStopRow(
+          _originSelected?.mainText ?? 'Origin',
+          color: Colors.blue,
+        ),
+        for (var index = 0; index < journey.legs.length; index++) ...[
+          _buildJourneyLegRow(journey.legs[index]),
+          _buildTimelineStopRow(
+            index == journey.legs.length - 1
+                ? destinationText
+                : _legToStopName(journey.legs[index]),
+            color: index == journey.legs.length - 1 ? Colors.red : Colors.grey,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildTimelineStopRow(String stopName, {required Color color}) {
+    return Row(
+      children: [
+        Icon(Icons.location_on, color: color),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            stopName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildJourneyLegRow(Leg leg) {
+    final vehicleLabel = leg is TransitLeg
+        ? _getVehicleTypeString(leg.vehicleType)
+        : 'Walk';
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 10, top: 4, bottom: 4),
+      child: Row(
+        children: [
+          const Column(
+            children: [
+              Icon(Icons.circle, size: 5, color: Colors.grey),
+              SizedBox(height: 4),
+              Icon(Icons.circle, size: 5, color: Colors.grey),
+            ],
+          ),
+          const SizedBox(width: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(vehicleLabel),
+          ),
+          const SizedBox(width: 8),
+          const Expanded(child: Text('Distance')),
+          const Text('Fare'),
+        ],
+      ),
+    );
+  }
+
+  String _legToStopName(Leg leg) {
+    if (leg is TransitLeg) return leg.toStopName;
+    if (leg is WalkLeg) return leg.toStopName;
+    return 'Stop';
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    final pendingSuggestions = _pendingSuggestions;
+    if (pendingSuggestions != null && !pendingSuggestions.isCompleted) {
+      pendingSuggestions.complete(<PlaceSuggestion>[]);
+    }
+    _originSearchController.dispose();
+    _destinationSearchController.dispose();
+    _sheetController.dispose();
+    super.dispose();
   }
 
   @override
@@ -533,7 +646,7 @@ class _CommuteState extends State<Commute> {
                         setState(() {
                           _originSelected = suggestion;
                           _originLatLng = null;
-                          _journeyCount = 0;
+                          _journeys = [];
                           _raptorRequestId++;
                           _isShowingSheet =
                               _originSearchController.text.isNotEmpty &&
@@ -562,7 +675,7 @@ class _CommuteState extends State<Commute> {
                         setState(() {
                           _destinationSelected = suggestion;
                           _destinationLatLng = null;
-                          _journeyCount = 0;
+                          _journeys = [];
                           _raptorRequestId++;
                           _isShowingSheet =
                               _originSearchController.text.isNotEmpty &&
