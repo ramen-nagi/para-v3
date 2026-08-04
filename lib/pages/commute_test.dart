@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
@@ -44,21 +43,25 @@ class Commute extends StatefulWidget {
 }
 
 class _CommuteState extends State<Commute> {
-  // ignore: unused_field
   MapboxMap? _mapboxMap;
+  CircleAnnotationManager? _circleAnnotationManager;
   final SearchController _originSearchController = SearchController();
   final SearchController _destinationSearchController = SearchController();
+  final DraggableScrollableController _sheetController =
+      DraggableScrollableController();
 
-  // ignore: unused_field
   PlaceSuggestion? _originSelected;
-  // ignore: unused_field
   PlaceSuggestion? _destinationSelected;
-  // ignore: unused_field
   Position? _originLatLng;
-  // ignore: unused_field
   Position? _destinationLatLng;
+
+  int _journeyCount = 0;
+  bool _isRaptorLoading = false;
+  int _raptorRequestId = 0;
   int _originGeocodeRequestId = 0;
   int _destinationGeocodeRequestId = 0;
+  bool _isSheetExpanded = false;
+  bool _isShowingSheet = false;
 
   Timer? _debounce;
   Completer<List<PlaceSuggestion>>? _pendingSuggestions;
@@ -70,8 +73,84 @@ class _CommuteState extends State<Commute> {
     caseSensitive: false,
   );
 
-  void _onMapCreated(MapboxMap mapboxMap) {
+  Future<void> _onMapCreated(MapboxMap mapboxMap) async {
     _mapboxMap = mapboxMap;
+    await _addOriginDestMarker(_originLatLng, _destinationLatLng);
+    await _fitOriginDestInCamera(_originLatLng, _destinationLatLng);
+  }
+
+  Future<void> _addOriginDestMarker(
+    Position? originLatLng,
+    Position? destinationLatLng,
+  ) async {
+    final map = _mapboxMap;
+    if (map == null) return;
+
+    _circleAnnotationManager ??= await map.annotations
+        .createCircleAnnotationManager();
+    await _circleAnnotationManager!.deleteAll();
+
+    final annotations = <CircleAnnotationOptions>[];
+    if (originLatLng != null) {
+      annotations.add(
+        CircleAnnotationOptions(
+          geometry: Point(coordinates: originLatLng),
+          circleRadius: 8.0,
+          circleColor: 0xFF2196F3,
+          circleStrokeWidth: 2.0,
+          circleStrokeColor: 0xFFFFFFFF,
+        ),
+      );
+    }
+    if (destinationLatLng != null) {
+      annotations.add(
+        CircleAnnotationOptions(
+          geometry: Point(coordinates: destinationLatLng),
+          circleRadius: 8.0,
+          circleColor: 0xFFF44336,
+          circleStrokeWidth: 2.0,
+          circleStrokeColor: 0xFFFFFFFF,
+        ),
+      );
+    }
+
+    if (annotations.isNotEmpty) {
+      await _circleAnnotationManager!.createMulti(annotations);
+    }
+  }
+
+  Future<void> _fitOriginDestInCamera(
+    Position? originLatLng,
+    Position? destinationLatLng,
+  ) async {
+    final map = _mapboxMap;
+    if (map == null || originLatLng == null || destinationLatLng == null) {
+      return;
+    }
+
+    final cameraOptions = await map.cameraForCoordinates(
+      [
+        Point(coordinates: originLatLng),
+        Point(coordinates: destinationLatLng),
+      ],
+      MbxEdgeInsets(top: 300, left: 60, bottom: 300, right: 60),
+      null,
+      null,
+    );
+    await map.easeTo(
+      cameraOptions,
+      MapAnimationOptions(duration: 750),
+    );
+  }
+
+  void _toggleDraggableScrollableSheetHeight() {
+    final targetSize = _isSheetExpanded ? 0.1 : 0.8;
+    _sheetController.animateTo(
+      targetSize,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+    );
+    setState(() => _isSheetExpanded = !_isSheetExpanded);
   }
 
   String _generateSessionToken() {
@@ -222,6 +301,9 @@ class _CommuteState extends State<Commute> {
         }
       });
 
+      await _addOriginDestMarker(_originLatLng, _destinationLatLng);
+      await _fitOriginDestInCamera(_originLatLng, _destinationLatLng);
+
       if (_originLatLng != null && _destinationLatLng != null) {
         _runRaptorPathfinding();
       }
@@ -230,17 +312,24 @@ class _CommuteState extends State<Commute> {
     }
   }
 
-  void _runRaptorPathfinding() {
+  Future<void> _runRaptorPathfinding() async {
     final origin = _originLatLng;
     final destination = _destinationLatLng;
+
     if (origin == null || destination == null) {
       print('Select and geocode both origin and destination first.');
       return;
     }
     if (!GtfsNetworkService.instance.isLoaded) {
       print('GTFS dataset has not loaded yet.');
+      setState(() => _isRaptorLoading = false);
       return;
     }
+
+    final requestId = ++_raptorRequestId;
+    setState(() => _isRaptorLoading = true);
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted || requestId != _raptorRequestId) return;
 
     final journeys = RaptorPathfindingService.instance.findJourneys(
       originLat: origin.lat.toDouble(),
@@ -248,6 +337,12 @@ class _CommuteState extends State<Commute> {
       destLat: destination.lat.toDouble(),
       destLng: destination.lng.toDouble(),
     );
+
+    if (!mounted || requestId != _raptorRequestId) return;
+    setState(() {
+      _journeyCount = journeys.length;
+      _isRaptorLoading = false;
+    });
 
     if (journeys.isEmpty) {
       print('No journeys found.');
@@ -301,6 +396,7 @@ class _CommuteState extends State<Commute> {
     }
     _originSearchController.dispose();
     _destinationSearchController.dispose();
+    _sheetController.dispose();
     super.dispose();
   }
 
@@ -349,6 +445,62 @@ class _CommuteState extends State<Commute> {
     );
   }
 
+  Widget _draggableSheet() {
+    return DraggableScrollableSheet(
+      controller: _sheetController,
+      initialChildSize: 0.1,
+      minChildSize: 0.1,
+      maxChildSize: 0.8,
+      snapSizes: const [0.1, 0.8],
+      snap: true,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(10),
+            ),
+          ),
+          child: ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.all(8),
+            children: [
+              GestureDetector(
+                onTap: _toggleDraggableScrollableSheetHeight,
+                behavior: HitTestBehavior.opaque,
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 32,
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: Container(
+                      width: 40,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (_isRaptorLoading)
+                const Center(child: CircularProgressIndicator())
+              else
+                Text(
+                  '$_journeyCount '
+                  '${_journeyCount == 1 ? 'Journey' : 'Journeys'} Found',
+                ),
+              const SizedBox(height: 20),
+              const Divider(height: 10),
+              // TODO: Add journey cards
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -381,7 +533,17 @@ class _CommuteState extends State<Commute> {
                         setState(() {
                           _originSelected = suggestion;
                           _originLatLng = null;
+                          _journeyCount = 0;
+                          _raptorRequestId++;
+                          _isShowingSheet =
+                              _originSearchController.text.isNotEmpty &&
+                              _destinationSearchController.text.isNotEmpty;
+                          _isRaptorLoading = _isShowingSheet;
                         });
+                        await _addOriginDestMarker(
+                          _originLatLng,
+                          _destinationLatLng,
+                        );
                         await _geocodeSelected(
                           suggestion,
                           isOrigin: true,
@@ -400,7 +562,17 @@ class _CommuteState extends State<Commute> {
                         setState(() {
                           _destinationSelected = suggestion;
                           _destinationLatLng = null;
+                          _journeyCount = 0;
+                          _raptorRequestId++;
+                          _isShowingSheet =
+                              _originSearchController.text.isNotEmpty &&
+                              _destinationSearchController.text.isNotEmpty;
+                          _isRaptorLoading = _isShowingSheet;
                         });
+                        await _addOriginDestMarker(
+                          _originLatLng,
+                          _destinationLatLng,
+                        );
                         await _geocodeSelected(
                           suggestion,
                           isOrigin: false,
@@ -415,37 +587,7 @@ class _CommuteState extends State<Commute> {
             ),
           ),
 
-          DraggableScrollableSheet(
-            initialChildSize: 0.25,
-            minChildSize: 0.1,
-            maxChildSize: 0.8,
-            builder: (context, scrollController) {
-              return Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).scaffoldBackgroundColor,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(10),
-                  ),
-                ),
-                child: ListView(
-                  controller: scrollController,
-                  padding: EdgeInsets.all(8),
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: Colors.grey,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
+          if (_isShowingSheet) _draggableSheet(),
         ],
       ),
     );
