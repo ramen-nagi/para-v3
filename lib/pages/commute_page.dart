@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
+import 'package:para_v3/services/map_matching_service.dart';
 import 'package:para_v3/services/raptor_pathfinding_service.dart';
 
 class PlaceSuggestion {
@@ -45,6 +46,7 @@ class CommutePage extends StatefulWidget {
 class _CommutePageState extends State<CommutePage> {
   MapboxMap? _mapboxMap;
   CircleAnnotationManager? _circleAnnotationManager;
+  CircleAnnotationManager? _stopCircleAnnotationManager;
   final SearchController _originSearchController = SearchController();
   final SearchController _destinationSearchController = SearchController();
   final DraggableScrollableController _sheetController =
@@ -57,6 +59,7 @@ class _CommutePageState extends State<CommutePage> {
 
   List<Journey> _journeys = [];
   Journey? _selectedJourney;
+  int _drawnJourneyLegCount = 0;
 
   bool _isRaptorLoading = false;
   int _raptorRequestId = 0;
@@ -98,7 +101,7 @@ class _CommutePageState extends State<CommutePage> {
         CircleAnnotationOptions(
           geometry: Point(coordinates: originLatLng),
           circleRadius: 8.0,
-          circleColor: 0xFF2196F3,
+          circleColor: 0xFF0700ff,
           circleStrokeWidth: 2.0,
           circleStrokeColor: 0xFFFFFFFF,
         ),
@@ -119,6 +122,48 @@ class _CommutePageState extends State<CommutePage> {
     if (annotations.isNotEmpty) {
       await _circleAnnotationManager!.createMulti(annotations);
     }
+  }
+
+  Future<void> _addStopsBetweenOriginDest() async {
+    final map = _mapboxMap;
+    final journey = _selectedJourney;
+    if (map == null || journey == null) return;
+
+    _stopCircleAnnotationManager ??= await map.annotations
+        .createCircleAnnotationManager();
+    await _stopCircleAnnotationManager!.deleteAll();
+
+    final stopPositions = <String, Position>{};
+    for (final leg in journey.legs) {
+      if (leg is! TransitLeg) continue;
+
+      final trip = MapMatchingService.getTripById(leg.tripId);
+      if (trip == null) continue;
+
+      for (final stop in MapMatchingService.getStopsAndStopTimes(trip)) {
+        if (stop.stopId == leg.fromStopId || stop.stopId == leg.toStopId) {
+          stopPositions.putIfAbsent(
+            stop.stopId,
+            () => Position(stop.stopLon, stop.stopLat),
+          );
+        }
+      }
+    }
+
+    if (stopPositions.isEmpty) return;
+    await _stopCircleAnnotationManager!.createMulti(
+      stopPositions.values
+          .map(
+            (position) => CircleAnnotationOptions(
+              geometry: Point(coordinates: position),
+              circleRadius: 5.0,
+              circleColor: 0xFF2196F3,
+              circleStrokeWidth: 2.0,
+              circleStrokeColor: 0xFFFFFBFE,
+            ),
+          )
+          .toList(),
+    );
   }
 
   Future<void> _fitOriginDestInCamera(
@@ -343,6 +388,93 @@ class _CommutePageState extends State<CommutePage> {
     );
   }
 
+  Future<void> _drawSelectedJourneyPolylines(Journey journey) async {
+    final map = _mapboxMap;
+    if (map == null) return;
+
+    final style = map.style;
+    for (var index = 0; index < _drawnJourneyLegCount; index++) {
+      final sourceId = 'commute-leg-source-$index';
+      final layerId = 'commute-leg-layer-$index';
+      if (await style.styleLayerExists(layerId)) {
+        await style.removeStyleLayer(layerId);
+      }
+      if (await style.styleSourceExists(sourceId)) {
+        await style.removeStyleSource(sourceId);
+      }
+    }
+
+    for (var index = 0; index < journey.legs.length; index++) {
+      final leg = journey.legs[index];
+
+      final sourceId = 'commute-leg-source-$index';
+      final layerId = 'commute-leg-layer-$index';
+      if (leg is WalkLeg) {
+        final start = _positionForLegStop(leg.fromStopId);
+        final end = _positionForLegStop(leg.toStopId);
+        if (start == null || end == null) continue;
+
+        final positions = await MapMatchingService.fetchWalkingRoute(start, end);
+        await MapMatchingService.drawWalkPolyline(
+          map,
+          positions,
+          sourceId: sourceId,
+          layerId: layerId,
+        );
+        continue;
+      }
+      if (leg is! TransitLeg) continue;
+
+      if (leg.vehicleType == VehicleType.train) {
+        final trip = MapMatchingService.getTripById(leg.tripId);
+        if (trip != null) {
+          await MapMatchingService.drawShapePolyline(
+            map,
+            trip,
+            startStop: leg.fromStopName,
+            endStop: leg.toStopName,
+            sourceId: sourceId,
+            layerId: layerId,
+            fitCamera: false,
+          );
+        }
+        continue;
+      }
+
+      final positions = await MapMatchingService.fetchMapMatching(
+        profile: 'driving-traffic',
+        tripId: leg.tripId,
+        startStop: leg.fromStopName,
+        endStop: leg.toStopName,
+      );
+      await MapMatchingService.drawRoutePolyline(
+        map,
+        positions,
+        sourceId: sourceId,
+        layerId: layerId,
+        fitCamera: false,
+      );
+    }
+
+    _drawnJourneyLegCount = journey.legs.length;
+  }
+
+  Position? _positionForLegStop(String stopId) {
+    if (stopId == '__ORIGIN__') return _originLatLng;
+    if (stopId == '__DESTINATION__') return _destinationLatLng;
+
+    for (final route in GtfsNetworkService.instance.routesMap.values) {
+      for (final trip in route.trips) {
+        for (final stop in trip.stopTimes) {
+          if (stop.stopId == stopId) {
+            return Position(stop.stopLon, stop.stopLat);
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   String _getVehicleTypeString(VehicleType type) {
     switch (type) {
       case VehicleType.tricycle:
@@ -423,25 +555,27 @@ class _CommutePageState extends State<CommutePage> {
           ),
           child: ListView(
             controller: scrollController,
-            padding: const EdgeInsets.all(8),
+            padding: EdgeInsets.fromLTRB(8, 0, 8, 8),
             children: [
               GestureDetector(
                 onTap: _toggleDraggableScrollableSheetHeight,
                 behavior: HitTestBehavior.opaque,
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 32,
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    child: Container(
-                      width: 40,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: Colors.grey,
-                        borderRadius: BorderRadius.circular(10),
+                child: Column(
+                  children: [
+                    SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.topCenter,
+                      child: Container(
+                        width: 40,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: Colors.grey,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
-                  ),
+                    SizedBox(height: 12),
+                  ],
                 ),
               ),
               if (_isRaptorLoading)
@@ -454,7 +588,11 @@ class _CommutePageState extends State<CommutePage> {
               for (final journey in _journeys)
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () => setState(() => _selectedJourney = journey),
+                  onTap: () async {
+                    setState(() => _selectedJourney = journey);
+                    await _addStopsBetweenOriginDest();
+                    await _drawSelectedJourneyPolylines(journey);
+                  },
                   child: _buildJourneyCard(
                     journey,
                     isSelected: identical(_selectedJourney, journey),
@@ -492,8 +630,29 @@ class _CommutePageState extends State<CommutePage> {
             ),
             const SizedBox(height: 12),
 
-            if (isSelected)
-              _buildJourneyDetails(journey)
+            if (isSelected) ...[
+              _buildJourneyDetails(journey),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {},
+                  icon: const Icon(Icons.directions_outlined),
+                  label: const Text(
+                    'Start Commute',
+                    style: TextStyle(fontSize: 18),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: colorScheme.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
+            ]
             else
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -504,8 +663,7 @@ class _CommutePageState extends State<CommutePage> {
                         margin: const EdgeInsets.only(right: 8),
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color:
-                              Theme.of(context).colorScheme.surfaceContainer,
+                          color: Theme.of(context).colorScheme.surfaceContainer,
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(

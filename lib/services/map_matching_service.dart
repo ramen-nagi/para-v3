@@ -21,6 +21,8 @@ class MapMatchingService {
     return null;
   }
 
+  static TripsModel? getTripById(String tripId) => _findTripById(tripId);
+
   static List<StopsAndStopTimesModel> _getTripStops(
     TripsModel trip,
     String? fromStopName,
@@ -112,14 +114,62 @@ class MapMatchingService {
     }
   }
 
+  static Future<List<Position>> fetchWalkingRoute(
+    Position start,
+    Position end,
+  ) async {
+    final accessToken = dotenv.env['MAPBOX_ACCESS_TOKEN'];
+    if (accessToken == null || accessToken.isEmpty) {
+      debugPrint('MAPBOX_ACCESS_TOKEN is missing or null.');
+      return [];
+    }
+
+    final Uri uri = Uri.parse(
+      'https://api.mapbox.com/directions/v5/mapbox/walking/'
+      '${start.lng},${start.lat};${end.lng},${end.lat}'
+      '?geometries=geojson'
+      '&overview=full'
+      '&access_token=$accessToken',
+    );
+
+    try {
+      final response = await http.get(uri);
+      if (response.statusCode != 200) {
+        debugPrint(
+          'Mapbox walking directions failed (${response.statusCode}): ${response.body}',
+        );
+        return [];
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final routes = data['routes'] as List?;
+      if (routes == null || routes.isEmpty) return [];
+
+      final coordinates = routes.first['geometry']['coordinates'] as List;
+      return coordinates
+          .map(
+            (coordinate) => Position(
+              (coordinate[0] as num).toDouble(),
+              (coordinate[1] as num).toDouble(),
+            ),
+          )
+          .toList();
+    } catch (error) {
+      debugPrint('Error requesting walking route: $error');
+      return [];
+    }
+  }
+
   static Future<void> drawRoutePolyline(
     MapboxMap map,
-    List<Position> positions,
-  ) async {
+    List<Position> positions, {
+    String sourceId = 'route-line-source',
+    String layerId = 'route-line-layer',
+    bool fitCamera = true,
+    List<double?>? lineDasharray,
+  }) async {
     if (positions.length < 2) return;
 
-    const sourceId = 'route-line-source';
-    const layerId = 'route-line-layer';
     final style = map.style;
     if (await style.styleLayerExists(layerId)) {
       await style.removeStyleLayer(layerId);
@@ -147,12 +197,15 @@ class MapMatchingService {
       LineLayer(
         id: layerId,
         sourceId: sourceId,
-        lineColor: 0xFF2196F3,
+        lineColor: 0xFF53b3ff,
         lineWidth: 5.0,
         lineJoin: LineJoin.ROUND,
         lineCap: LineCap.ROUND,
+        lineDasharray: lineDasharray,
       ),
     );
+
+    if (!fitCamera) return;
 
     final cameraOptions = await map.cameraForCoordinatesPadding(
       positions.map((position) => Point(coordinates: position)).toList(),
@@ -164,6 +217,23 @@ class MapMatchingService {
     await map.easeTo(
       cameraOptions,
       MapAnimationOptions(duration: 1000),
+    );
+  }
+
+  static Future<void> drawWalkPolyline(
+    MapboxMap map,
+    List<Position> positions, {
+    String sourceId = 'walk-line-source',
+    String layerId = 'walk-line-layer',
+    bool fitCamera = false,
+  }) {
+    return drawRoutePolyline(
+      map,
+      positions,
+      sourceId: sourceId,
+      layerId: layerId,
+      fitCamera: fitCamera,
+      lineDasharray: const <double?>[0.1, 2.0],
     );
   }
 
@@ -181,19 +251,61 @@ class MapMatchingService {
 
   static Future<void> drawShapePolyline(
     MapboxMap map,
-    TripsModel trip,
-  ) async {
+    TripsModel trip, {
+    String? startStop,
+    String? endStop,
+    String sourceId = 'route-line-source',
+    String layerId = 'route-line-layer',
+    bool fitCamera = true,
+  }) async {
     final shapes = List<ShapesModel>.from(trip.shapes ?? [])
       ..sort((a, b) => a.shapePtSequence.compareTo(b.shapePtSequence));
 
-    final positions = shapes
+    var positions = shapes
         .map((shape) => Position(shape.shapePtLon, shape.shapePtLat))
         .toList();
+    final legStops = _getTripStops(trip, startStop, endStop);
+    if (startStop != null && endStop != null && legStops.length >= 2) {
+      final startPosition = Position(legStops.first.stopLon, legStops.first.stopLat);
+      final endPosition = Position(legStops.last.stopLon, legStops.last.stopLat);
+      final startIndex = _nearestPositionIndex(positions, startPosition);
+      final endIndex = _nearestPositionIndex(positions, endPosition);
+      positions = startIndex <= endIndex
+          ? positions.sublist(startIndex, endIndex + 1)
+          : positions.sublist(endIndex, startIndex + 1).reversed.toList();
+    }
     if (positions.length < 2) {
       debugPrint('No usable shape points found for trip ${trip.tripId}.');
       return;
     }
 
-    await drawRoutePolyline(map, positions);
+    await drawRoutePolyline(
+      map,
+      positions,
+      sourceId: sourceId,
+      layerId: layerId,
+      fitCamera: fitCamera,
+    );
+  }
+
+  static int _nearestPositionIndex(
+    List<Position> positions,
+    Position target,
+  ) {
+    var nearestIndex = 0;
+    var nearestDistance = double.infinity;
+    for (var index = 0; index < positions.length; index++) {
+      final latitudeDifference =
+          positions[index].lat.toDouble() - target.lat.toDouble();
+      final longitudeDifference =
+          positions[index].lng.toDouble() - target.lng.toDouble();
+      final distance = latitudeDifference * latitudeDifference +
+          longitudeDifference * longitudeDifference;
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    }
+    return nearestIndex;
   }
 }
