@@ -83,17 +83,24 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
             Icons.chevron_right,
             size: 20,
           ),
-          onTap: () {
+          onTap: () async {
             debugPrint('Selected Trip: ${trip.tripId}');
 
-            _drawStopMarkersOnMap(trip);
+            final map = _mapboxMap;
+            if (map == null) return;
+
+            await _drawStopMarkersOnMap(trip);
 
             //TOOD: Modify card widget to display all intermediate stops in an ordered list
 
             if (widget.route.vehicleType == VehicleType.train) {
-              MapMatchingService.drawTripShapePolylineOnMap(_mapboxMap!, trip);
+              await MapMatchingService.drawShapePolyline(map, trip);
             } else {
-              MapMatchingService.drawTripPolylineOnMap(_mapboxMap!, trip);
+              final positions = await MapMatchingService.fetchMapMatching(
+                profile: 'driving-traffic',
+                tripId: trip.tripId,
+              );
+              await MapMatchingService.drawRoutePolyline(map, positions);
             }
           },
         ),
