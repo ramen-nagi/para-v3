@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class DragScrollSheet extends StatefulWidget {
-  static final ValueNotifier<double> sheetExtent = ValueNotifier(0.22);
+  static final ValueNotifier<double> sheetExtent = ValueNotifier(0.0);
 
   final List<Widget> children;
   final double initialChildSize;
@@ -62,6 +62,7 @@ class _DragScrollSheetState extends State<DragScrollSheet> {
   void dispose() {
     _sheetController.removeListener(_publishSheetExtent);
     _sheetController.dispose();
+    DragScrollSheet.sheetExtent.value = 0.0;
     super.dispose();
   }
 

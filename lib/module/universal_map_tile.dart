@@ -58,7 +58,7 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
       return;
     }
 
-    final bottomMargin = MediaQuery.sizeOf(context).height * sheetExtent;
+    final bottomMargin = MediaQuery.sizeOf(context).height * sheetExtent + 8.0;
     await map.logo.updateSettings(LogoSettings(marginBottom: bottomMargin));
     await map.attribution.updateSettings(
       AttributionSettings(marginBottom: bottomMargin),
@@ -134,7 +134,7 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
                 .clamp(0.0, _maxVisibleSheetExtent)
                 .toDouble();
             final bottom =
-                MediaQuery.sizeOf(context).height * cappedSheetExtent;
+                MediaQuery.sizeOf(context).height * cappedSheetExtent + 8.0;
             return Positioned(
               right: 16,
               bottom: bottom,
@@ -142,7 +142,7 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _buildCircularMapButton(Icons.traffic_rounded),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   _buildCircularMapButton(Icons.my_location_rounded),
                 ],
               ),
