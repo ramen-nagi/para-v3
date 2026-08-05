@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
+import 'package:para_v3/module/drag_scroll_sheet.dart';
 import 'package:para_v3/services/autocomplete_geocoding.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'package:para_v3/services/map_matching_service.dart';
@@ -19,8 +20,6 @@ class _CommutePageState extends State<CommutePage> {
   CircleAnnotationManager? _stopCircleAnnotationManager;
   final SearchController _originSearchController = SearchController();
   final SearchController _destinationSearchController = SearchController();
-  final DraggableScrollableController _sheetController =
-      DraggableScrollableController();
 
   PlaceSuggestion? _originSelected;
   PlaceSuggestion? _destinationSelected;
@@ -36,7 +35,6 @@ class _CommutePageState extends State<CommutePage> {
   int _raptorRequestId = 0;
   int _originGeocodeRequestId = 0;
   int _destinationGeocodeRequestId = 0;
-  bool _isSheetExpanded = false;
   bool _isShowingSheet = false;
   bool _isStartingCommute = false;
   int _currentLegIndex = 0;
@@ -153,20 +151,6 @@ class _CommutePageState extends State<CommutePage> {
       cameraOptions,
       MapAnimationOptions(duration: 750),
     );
-  }
-
-  void _toggleDraggableScrollableSheetHeight() {
-    final targetSize = _isSheetExpanded ? 0.1 : 0.8;
-    setState(() => _isSheetExpanded = !_isSheetExpanded);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_sheetController.isAttached) return;
-      _sheetController.animateTo(
-        targetSize,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-      );
-    });
   }
 
   Future<void> _geocodeSelected(
@@ -412,77 +396,29 @@ class _CommutePageState extends State<CommutePage> {
     );
   }
 
-  Widget _draggableSheet() {
-    return DraggableScrollableSheet(
-      key: const ValueKey('commute-draggable-sheet'),
-      controller: _sheetController,
-      initialChildSize: 0.5,
-      minChildSize: 0.1,
-      maxChildSize: 0.8,
-      snapSizes: const [0.1, 0.8],
-      snap: true,
-      builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).scaffoldBackgroundColor,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(10),
-            ),
+  List<Widget> _buildJourneySheetChildren() {
+    return [
+      Text('${_journeys.length} Journeys Found'),
+      const SizedBox(height: 20),
+      const Divider(height: 10),
+      for (final journey in _journeys)
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () async {
+            setState(() {
+              _selectedJourney = journey;
+              _isStartingCommute = false;
+              _currentLegIndex = 0;
+            });
+            await _addStopsBetweenOriginDest();
+            await _drawSelectedJourneyPolylines(journey);
+          },
+          child: _buildJourneyCard(
+            journey,
+            isSelected: identical(_selectedJourney, journey),
           ),
-          child: ListView(
-            controller: scrollController,
-            padding: EdgeInsets.fromLTRB(8, 0, 8, 8),
-            children: [
-              GestureDetector(
-                onTap: _toggleDraggableScrollableSheetHeight,
-                behavior: HitTestBehavior.opaque,
-                child: Column(
-                  children: [
-                    SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.topCenter,
-                      child: Container(
-                        width: 40,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: Colors.grey,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: 12),
-                  ],
-                ),
-              ),
-              if (_isRaptorLoading)
-                const Center(child: CircularProgressIndicator())
-              else
-                Text('${_journeys.length} Journeys Found'),
-              const SizedBox(height: 20),
-              const Divider(height: 10),
-
-              for (final journey in _journeys)
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () async {
-                    setState(() {
-                      _selectedJourney = journey;
-                      _isStartingCommute = false;
-                      _currentLegIndex = 0;
-                    });
-                    await _addStopsBetweenOriginDest();
-                    await _drawSelectedJourneyPolylines(journey);
-                  },
-                  child: _buildJourneyCard(
-                    journey,
-                    isSelected: identical(_selectedJourney, journey),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
+        ),
+    ];
   }
 
   Widget _buildJourneyCard(Journey journey, {required bool isSelected}) {
@@ -516,13 +452,7 @@ class _CommutePageState extends State<CommutePage> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () async {
-                    setState(() {
-                      _isStartingCommute = true;
-                      _currentLegIndex = 0;
-                    });
-                    await _fitLegInCamera();
-                  },
+                  onPressed: _startCommute,
                   icon: const Icon(Icons.directions_outlined),
                   label: const Text(
                     'Start Commute',
@@ -679,6 +609,30 @@ class _CommutePageState extends State<CommutePage> {
     );
   }
 
+  Future<void> _startCommute() async {
+    setState(() {
+      _isStartingCommute = true;
+      _currentLegIndex = 0;
+    });
+    await _fitLegInCamera();
+  }
+
+  Widget _buildRaptorLoadingIndicator() {
+    return const Positioned.fill(
+      child: IgnorePointer(
+        child: Center(
+          child: ColoredBox(
+            color: Colors.transparent,
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: CircularProgressIndicator(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildJourneyDetails(Journey journey) {
     final destinationText = _destinationSelected?.mainText ?? 'Destination';
 
@@ -762,7 +716,6 @@ class _CommutePageState extends State<CommutePage> {
     _autocompleteGeocoding.dispose();
     _originSearchController.dispose();
     _destinationSearchController.dispose();
-    _sheetController.dispose();
     super.dispose();
   }
 
@@ -861,7 +814,9 @@ class _CommutePageState extends State<CommutePage> {
           if (_isStartingCommute && _selectedJourney != null)
             _buildStartCommuteCard(_selectedJourney!)
           else if (_isShowingSheet)
-            _draggableSheet(),
+            DragScrollSheet(children: _buildJourneySheetChildren()),
+
+          if (_isRaptorLoading) _buildRaptorLoadingIndicator(),
         ],
       ),
     );
