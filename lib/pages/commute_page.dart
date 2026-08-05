@@ -60,6 +60,7 @@ class _CommutePageState extends State<CommutePage> {
   List<Journey> _journeys = [];
   Journey? _selectedJourney;
   int _drawnJourneyLegCount = 0;
+  int _polylineRenderRequestId = 0;
 
   bool _isRaptorLoading = false;
   int _raptorRequestId = 0;
@@ -67,6 +68,8 @@ class _CommutePageState extends State<CommutePage> {
   int _destinationGeocodeRequestId = 0;
   bool _isSheetExpanded = false;
   bool _isShowingSheet = false;
+  bool _isStartingCommute = false;
+  int _currentLegIndex = 0;
 
   Timer? _debounce;
   Completer<List<PlaceSuggestion>>? _pendingSuggestions;
@@ -81,7 +84,7 @@ class _CommutePageState extends State<CommutePage> {
   Future<void> _onMapCreated(MapboxMap mapboxMap) async {
     _mapboxMap = mapboxMap;
     await _addOriginDestMarker(_originLatLng, _destinationLatLng);
-    await _fitOriginDestInCamera(_originLatLng, _destinationLatLng);
+    await _fitCoordinatesInCamera(_originLatLng, _destinationLatLng);
   }
 
   Future<void> _addOriginDestMarker(
@@ -166,19 +169,19 @@ class _CommutePageState extends State<CommutePage> {
     );
   }
 
-  Future<void> _fitOriginDestInCamera(
-    Position? originLatLng,
-    Position? destinationLatLng,
+  Future<void> _fitCoordinatesInCamera(
+    Position? firstPosition,
+    Position? secondPosition,
   ) async {
     final map = _mapboxMap;
-    if (map == null || originLatLng == null || destinationLatLng == null) {
+    if (map == null || firstPosition == null || secondPosition == null) {
       return;
     }
 
     final cameraOptions = await map.cameraForCoordinates(
       [
-        Point(coordinates: originLatLng),
-        Point(coordinates: destinationLatLng),
+        Point(coordinates: firstPosition),
+        Point(coordinates: secondPosition),
       ],
       MbxEdgeInsets(top: 200, left: 60, bottom: 200, right: 60),
       null,
@@ -349,7 +352,7 @@ class _CommutePageState extends State<CommutePage> {
       });
 
       await _addOriginDestMarker(_originLatLng, _destinationLatLng);
-      await _fitOriginDestInCamera(_originLatLng, _destinationLatLng);
+      await _fitCoordinatesInCamera(_originLatLng, _destinationLatLng);
 
       if (_originLatLng != null && _destinationLatLng != null) {
         final raptorRequestId = ++_raptorRequestId;
@@ -359,6 +362,8 @@ class _CommutePageState extends State<CommutePage> {
         setState(() {
           _journeys = journeys;
           _selectedJourney = null;
+          _isStartingCommute = false;
+          _currentLegIndex = 0;
           _isRaptorLoading = false;
         });
       }
@@ -392,17 +397,8 @@ class _CommutePageState extends State<CommutePage> {
     final map = _mapboxMap;
     if (map == null) return;
 
-    final style = map.style;
-    for (var index = 0; index < _drawnJourneyLegCount; index++) {
-      final sourceId = 'commute-leg-source-$index';
-      final layerId = 'commute-leg-layer-$index';
-      if (await style.styleLayerExists(layerId)) {
-        await style.removeStyleLayer(layerId);
-      }
-      if (await style.styleSourceExists(sourceId)) {
-        await style.removeStyleSource(sourceId);
-      }
-    }
+    await _clearJourneyPolylines();
+    final renderRequestId = _polylineRenderRequestId;
 
     for (var index = 0; index < journey.legs.length; index++) {
       final leg = journey.legs[index];
@@ -414,7 +410,11 @@ class _CommutePageState extends State<CommutePage> {
         final end = _positionForLegStop(leg.toStopId);
         if (start == null || end == null) continue;
 
-        final positions = await MapMatchingService.fetchWalkingRoute(start, end);
+        final positions = await MapMatchingService.fetchWalkingRoute(
+          start,
+          end,
+        );
+        if (renderRequestId != _polylineRenderRequestId) return;
         await MapMatchingService.drawWalkPolyline(
           map,
           positions,
@@ -437,6 +437,7 @@ class _CommutePageState extends State<CommutePage> {
             layerId: layerId,
             fitCamera: false,
           );
+          if (renderRequestId != _polylineRenderRequestId) return;
         }
         continue;
       }
@@ -447,6 +448,7 @@ class _CommutePageState extends State<CommutePage> {
         startStop: leg.fromStopName,
         endStop: leg.toStopName,
       );
+      if (renderRequestId != _polylineRenderRequestId) return;
       await MapMatchingService.drawRoutePolyline(
         map,
         positions,
@@ -456,7 +458,31 @@ class _CommutePageState extends State<CommutePage> {
       );
     }
 
-    _drawnJourneyLegCount = journey.legs.length;
+    if (renderRequestId == _polylineRenderRequestId) {
+      _drawnJourneyLegCount = journey.legs.length;
+    }
+  }
+
+  Future<void> _clearJourneyPolylines() async {
+    _polylineRenderRequestId++;
+    final map = _mapboxMap;
+    if (map == null) {
+      _drawnJourneyLegCount = 0;
+      return;
+    }
+
+    final style = map.style;
+    for (var index = 0; index < _drawnJourneyLegCount; index++) {
+      final sourceId = 'commute-leg-source-$index';
+      final layerId = 'commute-leg-layer-$index';
+      if (await style.styleLayerExists(layerId)) {
+        await style.removeStyleLayer(layerId);
+      }
+      if (await style.styleSourceExists(sourceId)) {
+        await style.removeStyleSource(sourceId);
+      }
+    }
+    _drawnJourneyLegCount = 0;
   }
 
   Position? _positionForLegStop(String stopId) {
@@ -473,6 +499,21 @@ class _CommutePageState extends State<CommutePage> {
       }
     }
     return null;
+  }
+
+  Future<void> _fitLegInCamera() async {
+    final journey = _selectedJourney;
+    if (journey == null ||
+        _currentLegIndex < 0 ||
+        _currentLegIndex >= journey.legs.length) {
+      return;
+    }
+
+    final leg = journey.legs[_currentLegIndex];
+    await _fitCoordinatesInCamera(
+      _positionForLegStop(leg.fromStopId),
+      _positionForLegStop(leg.toStopId),
+    );
   }
 
   String _getVehicleTypeString(VehicleType type) {
@@ -540,7 +581,7 @@ class _CommutePageState extends State<CommutePage> {
   Widget _draggableSheet() {
     return DraggableScrollableSheet(
       controller: _sheetController,
-      initialChildSize: 0.8,
+      initialChildSize: 0.3,
       minChildSize: 0.1,
       maxChildSize: 0.8,
       snapSizes: const [0.1, 0.8],
@@ -589,7 +630,11 @@ class _CommutePageState extends State<CommutePage> {
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () async {
-                    setState(() => _selectedJourney = journey);
+                    setState(() {
+                      _selectedJourney = journey;
+                      _isStartingCommute = false;
+                      _currentLegIndex = 0;
+                    });
                     await _addStopsBetweenOriginDest();
                     await _drawSelectedJourneyPolylines(journey);
                   },
@@ -636,7 +681,13 @@ class _CommutePageState extends State<CommutePage> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () {},
+                  onPressed: () async {
+                    setState(() {
+                      _isStartingCommute = true;
+                      _currentLegIndex = 0;
+                    });
+                    await _fitLegInCamera();
+                  },
                   icon: const Icon(Icons.directions_outlined),
                   label: const Text(
                     'Start Commute',
@@ -652,8 +703,7 @@ class _CommutePageState extends State<CommutePage> {
                   ),
                 ),
               ),
-            ]
-            else
+            ] else
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -676,6 +726,113 @@ class _CommutePageState extends State<CommutePage> {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStartCommuteCard(Journey journey) {
+    final leg = journey.legs[_currentLegIndex];
+    final vehicleType = leg is TransitLeg
+        ? _getVehicleTypeString(leg.vehicleType)
+        : 'Walk';
+    final routeLongName = leg is TransitLeg ? leg.routeLongName : 'Walking';
+    final fromStop = leg is TransitLeg
+        ? leg.fromStopName
+        : (leg as WalkLeg).fromStopName;
+    final toStop = leg is TransitLeg
+        ? leg.toStopName
+        : (leg as WalkLeg).toStopName;
+
+    return Positioned(
+      bottom: 10,
+      right: 10,
+      left: 10,
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _currentLegIndex > 0
+                        ? () async {
+                            setState(() => _currentLegIndex--);
+                            await _fitLegInCamera();
+                          }
+                        : null,
+                    icon: const Icon(Icons.arrow_back),
+                    label: const Text('Previous'),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        'Leg ${_currentLegIndex + 1} of ${journey.legs.length}',
+                      ),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _currentLegIndex < journey.legs.length - 1
+                        ? () async {
+                            setState(() => _currentLegIndex++);
+                            await _fitLegInCamera();
+                          }
+                        : null,
+                    icon: const Icon(Icons.arrow_forward),
+                    label: const Text('Next'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [Text('Distance'), Text('Fare')],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(vehicleType),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          routeLongName,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          'From: $fromStop',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          'To: $toStop',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -806,11 +963,14 @@ class _CommutePageState extends State<CommutePage> {
                           _originLatLng = null;
                           _journeys = [];
                           _raptorRequestId++;
+                          _isStartingCommute = false;
+                          _currentLegIndex = 0;
                           _isShowingSheet =
                               _originSearchController.text.isNotEmpty &&
                               _destinationSearchController.text.isNotEmpty;
                           _isRaptorLoading = _isShowingSheet;
                         });
+                        await _clearJourneyPolylines();
                         await _addOriginDestMarker(
                           _originLatLng,
                           _destinationLatLng,
@@ -835,11 +995,14 @@ class _CommutePageState extends State<CommutePage> {
                           _destinationLatLng = null;
                           _journeys = [];
                           _raptorRequestId++;
+                          _isStartingCommute = false;
+                          _currentLegIndex = 0;
                           _isShowingSheet =
                               _originSearchController.text.isNotEmpty &&
                               _destinationSearchController.text.isNotEmpty;
                           _isRaptorLoading = _isShowingSheet;
                         });
+                        await _clearJourneyPolylines();
                         await _addOriginDestMarker(
                           _originLatLng,
                           _destinationLatLng,
@@ -858,7 +1021,10 @@ class _CommutePageState extends State<CommutePage> {
             ),
           ),
 
-          if (_isShowingSheet) _draggableSheet(),
+          if (_isStartingCommute && _selectedJourney != null)
+            _buildStartCommuteCard(_selectedJourney!)
+          else if (_isShowingSheet)
+            _draggableSheet(),
         ],
       ),
     );
