@@ -1,40 +1,10 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:http/http.dart' as http;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
+import 'package:para_v3/services/autocomplete_geocoding.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'package:para_v3/services/map_matching_service.dart';
 import 'package:para_v3/services/raptor_pathfinding_service.dart';
-
-class PlaceSuggestion {
-  final String placeId;
-  final String mainText;
-  final String secondaryText;
-  final String fullText;
-
-  PlaceSuggestion({
-    required this.placeId,
-    required this.mainText,
-    required this.secondaryText,
-    required this.fullText,
-  });
-
-  factory PlaceSuggestion.fromJson(Map<String, dynamic> json) {
-    final placePrediction = json['placePrediction'];
-    final structuredFormat = placePrediction['structuredFormat'];
-
-    return PlaceSuggestion(
-      placeId: placePrediction['placeId'] ?? '',
-      mainText: structuredFormat?['mainText']?['text'] ?? '',
-      secondaryText: structuredFormat?['secondaryText']?['text'] ?? '',
-      fullText: placePrediction['text']?['text'] ?? '',
-    );
-  }
-}
 
 class CommutePage extends StatefulWidget {
   const CommutePage({super.key});
@@ -71,15 +41,7 @@ class _CommutePageState extends State<CommutePage> {
   bool _isStartingCommute = false;
   int _currentLegIndex = 0;
 
-  Timer? _debounce;
-  Completer<List<PlaceSuggestion>>? _pendingSuggestions;
-  String? _sessionToken;
-
-  static const int _maxResults = 5;
-  static final RegExp _metroManilaRegex = RegExp(
-    r'Metro Manila',
-    caseSensitive: false,
-  );
+  final _autocompleteGeocoding = AutocompleteGeocodingService();
 
   Future<void> _onMapCreated(MapboxMap mapboxMap) async {
     _mapboxMap = mapboxMap;
@@ -195,110 +157,16 @@ class _CommutePageState extends State<CommutePage> {
 
   void _toggleDraggableScrollableSheetHeight() {
     final targetSize = _isSheetExpanded ? 0.1 : 0.8;
-    _sheetController.animateTo(
-      targetSize,
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-    );
     setState(() => _isSheetExpanded = !_isSheetExpanded);
-  }
 
-  String _generateSessionToken() {
-    final rng = Random.secure();
-    String hex(int bytes) => List.generate(
-      bytes,
-      (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
-    ).join();
-    return '${hex(4)}-${hex(2)}-4${hex(1).substring(1)}-'
-        '${(rng.nextInt(4) + 8).toRadixString(16)}${hex(1).substring(1)}-${hex(6)}';
-  }
-
-  Future<List<PlaceSuggestion>> _getDebouncedSuggestions(String query) {
-    _debounce?.cancel();
-    final pendingSuggestions = _pendingSuggestions;
-    if (pendingSuggestions != null && !pendingSuggestions.isCompleted) {
-      pendingSuggestions.complete(<PlaceSuggestion>[]);
-    }
-
-    if (query.trim().isEmpty) {
-      return Future.value(<PlaceSuggestion>[]);
-    }
-
-    final completer = Completer<List<PlaceSuggestion>>();
-    _pendingSuggestions = completer;
-    _debounce = Timer(const Duration(milliseconds: 500), () async {
-      final suggestions = await _fetchAutocompleteSuggestions(query);
-      if (!completer.isCompleted) {
-        completer.complete(suggestions);
-      }
-    });
-    return completer.future;
-  }
-
-  Future<List<PlaceSuggestion>> _fetchAutocompleteSuggestions(
-    String query,
-  ) async {
-    final apiKey = dotenv.env['MAPS_PLATFORM_KEY'];
-    if (apiKey == null || apiKey.isEmpty) {
-      debugPrint('MAPS_PLATFORM_KEY is missing from .env');
-      return [];
-    }
-
-    _sessionToken ??= _generateSessionToken();
-
-    try {
-      final response = await http.post(
-        Uri.parse('https://places.googleapis.com/v1/places:autocomplete'),
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask':
-              'suggestions.placePrediction.placeId,'
-              'suggestions.placePrediction.text,'
-              'suggestions.placePrediction.structuredFormat',
-        },
-        body: jsonEncode({
-          'input': query,
-          'includedRegionCodes': ['ph'],
-          'locationRestriction': {
-            'rectangle': {
-              'low': {
-                'latitude': 14.349036807202772,
-                'longitude': 120.89298105551104,
-              },
-              'high': {
-                'latitude': 14.788314817021137,
-                'longitude': 121.14086007810187,
-              },
-            },
-          },
-          'sessionToken': _sessionToken,
-        }),
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_sheetController.isAttached) return;
+      _sheetController.animateTo(
+        targetSize,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
       );
-
-      if (response.statusCode != 200) {
-        debugPrint('Places Autocomplete error: ${response.body}');
-        return [];
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final rawSuggestions = (data['suggestions'] as List?) ?? [];
-      final parsed = rawSuggestions
-          .map(
-            (suggestion) =>
-                PlaceSuggestion.fromJson(suggestion as Map<String, dynamic>),
-          )
-          .where(
-            (suggestion) => _metroManilaRegex.hasMatch(suggestion.fullText),
-          )
-          .take(_maxResults)
-          .toList();
-
-      return parsed;
-    } catch (e) {
-      debugPrint('Places Autocomplete exception: $e');
-      return [];
-    }
+    });
   }
 
   Future<void> _geocodeSelected(
@@ -306,69 +174,34 @@ class _CommutePageState extends State<CommutePage> {
     required bool isOrigin,
     required int requestId,
   }) async {
-    final apiKey = dotenv.env['MAPS_PLATFORM_KEY'];
-    if (apiKey == null || apiKey.isEmpty) {
-      debugPrint('[Geocode] MAPS_PLATFORM_KEY is missing from .env');
-      return;
-    }
+    final position = await _autocompleteGeocoding.geocode(suggestion);
+    if (!mounted || position == null) return;
+    if (isOrigin && requestId != _originGeocodeRequestId) return;
+    if (!isOrigin && requestId != _destinationGeocodeRequestId) return;
 
-    try {
-      final response = await http.get(
-        Uri.parse(
-          'https://places.googleapis.com/v1/places/${suggestion.placeId}',
-        ),
-        headers: {
-          'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': 'location',
-        },
-      );
-
-      if (response.statusCode != 200) {
-        debugPrint('[Geocode] Error response: ${response.body}');
-        return;
+    setState(() {
+      if (isOrigin) {
+        _originLatLng = position;
+      } else {
+        _destinationLatLng = position;
       }
+    });
 
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final location = data['location'] as Map<String, dynamic>?;
-      if (location == null) {
-        debugPrint(
-          '[Geocode] No location in response for placeId: ${suggestion.placeId}',
-        );
-        return;
-      }
+    await _addOriginDestMarker(_originLatLng, _destinationLatLng);
+    await _fitCoordinatesInCamera(_originLatLng, _destinationLatLng);
 
-      final lat = (location['latitude'] as num).toDouble();
-      final lng = (location['longitude'] as num).toDouble();
-      if (!mounted) return;
-      if (isOrigin && requestId != _originGeocodeRequestId) return;
-      if (!isOrigin && requestId != _destinationGeocodeRequestId) return;
-
+    if (_originLatLng != null && _destinationLatLng != null) {
+      final raptorRequestId = ++_raptorRequestId;
+      setState(() => _isRaptorLoading = true);
+      final journeys = await _runRaptorPathfinding();
+      if (!mounted || raptorRequestId != _raptorRequestId) return;
       setState(() {
-        if (isOrigin) {
-          _originLatLng = Position(lng, lat);
-        } else {
-          _destinationLatLng = Position(lng, lat);
-        }
+        _journeys = journeys;
+        _selectedJourney = null;
+        _isStartingCommute = false;
+        _currentLegIndex = 0;
+        _isRaptorLoading = false;
       });
-
-      await _addOriginDestMarker(_originLatLng, _destinationLatLng);
-      await _fitCoordinatesInCamera(_originLatLng, _destinationLatLng);
-
-      if (_originLatLng != null && _destinationLatLng != null) {
-        final raptorRequestId = ++_raptorRequestId;
-        setState(() => _isRaptorLoading = true);
-        final journeys = await _runRaptorPathfinding();
-        if (!mounted || raptorRequestId != _raptorRequestId) return;
-        setState(() {
-          _journeys = journeys;
-          _selectedJourney = null;
-          _isStartingCommute = false;
-          _currentLegIndex = 0;
-          _isRaptorLoading = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('[Geocode] Exception while fetching place details: $e');
     }
   }
 
@@ -551,7 +384,8 @@ class _CommutePageState extends State<CommutePage> {
             barElevation: const WidgetStatePropertyAll(0),
             suggestionsBuilder: (context, controller) async {
               final query = controller.text;
-              final suggestions = await _getDebouncedSuggestions(query);
+              final suggestions = await _autocompleteGeocoding
+                  .getDebouncedSuggestions(query);
               if (controller.text != query) return const [];
 
               return suggestions
@@ -580,8 +414,9 @@ class _CommutePageState extends State<CommutePage> {
 
   Widget _draggableSheet() {
     return DraggableScrollableSheet(
+      key: const ValueKey('commute-draggable-sheet'),
       controller: _sheetController,
-      initialChildSize: 0.3,
+      initialChildSize: 0.5,
       minChildSize: 0.1,
       maxChildSize: 0.8,
       snapSizes: const [0.1, 0.8],
@@ -737,12 +572,18 @@ class _CommutePageState extends State<CommutePage> {
         ? _getVehicleTypeString(leg.vehicleType)
         : 'Walk';
     final routeLongName = leg is TransitLeg ? leg.routeLongName : 'Walking';
-    final fromStop = leg is TransitLeg
+    final legFromStop = leg is TransitLeg
         ? leg.fromStopName
         : (leg as WalkLeg).fromStopName;
-    final toStop = leg is TransitLeg
+    final legToStop = leg is TransitLeg
         ? leg.toStopName
         : (leg as WalkLeg).toStopName;
+    final fromStop = _currentLegIndex == 0
+        ? (_originSelected?.mainText ?? legFromStop)
+        : legFromStop;
+    final toStop = _currentLegIndex == journey.legs.length - 1
+        ? (_destinationSelected?.mainText ?? legToStop)
+        : legToStop;
 
     return Positioned(
       bottom: 10,
@@ -918,11 +759,7 @@ class _CommutePageState extends State<CommutePage> {
 
   @override
   void dispose() {
-    _debounce?.cancel();
-    final pendingSuggestions = _pendingSuggestions;
-    if (pendingSuggestions != null && !pendingSuggestions.isCompleted) {
-      pendingSuggestions.complete(<PlaceSuggestion>[]);
-    }
+    _autocompleteGeocoding.dispose();
     _originSearchController.dispose();
     _destinationSearchController.dispose();
     _sheetController.dispose();
