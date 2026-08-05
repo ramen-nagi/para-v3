@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:para_v3/module/location_permission_card.dart';
+import 'package:para_v3/services/location_permission_service.dart';
 
 class UniversalMapTile extends StatefulWidget {
   final double initialZoom;
@@ -19,6 +21,9 @@ class UniversalMapTile extends StatefulWidget {
 }
 
 class _UniversalMapTileState extends State<UniversalMapTile> {
+  final _locationPermissionService = const LocationPermissionService();
+  LocationPermissionState? _locationPermissionState;
+
   @override
   void initState() {
     super.initState();
@@ -37,35 +42,79 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
       infiniteBounds: false,
     );
 
-    // TODO: Add circular button for toggle traffic layer
-
-    return MapWidget(
-      key: const ValueKey("UniversalMapWidget"),
-      cameraOptions: CameraOptions(
-        center: defaultPoint,
-        zoom: widget.initialZoom,
-      ),
-      onMapCreated: (MapboxMap mapboxMap) async {
-        await mapboxMap.setBounds(
-          CameraBoundsOptions(
-            bounds: metroManilaBounds,
-            minZoom: 10.0,
-            maxZoom: 17.0,
+    return Stack(
+      children: [
+        MapWidget(
+          key: const ValueKey("UniversalMapWidget"),
+          cameraOptions: CameraOptions(
+            center: defaultPoint,
+            zoom: widget.initialZoom,
           ),
-        );
+          onMapCreated: (MapboxMap mapboxMap) async {
+            await mapboxMap.setBounds(
+              CameraBoundsOptions(
+                bounds: metroManilaBounds,
+                minZoom: 10.0,
+                maxZoom: 17.0,
+              ),
+            );
 
-        mapboxMap.addInteraction(
-          LongTapInteraction.onMap((context) {
-            if (widget.onLongTap != null) {
-              widget.onLongTap!(context.point);
+            await _enableLiveLocation(mapboxMap);
+
+            if (widget.onMapCreated != null) {
+              widget.onMapCreated!(mapboxMap);
             }
-          }),
-        );
+          },
+        ),
+        if (_locationPermissionState == LocationPermissionState.permanentlyDenied)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: LocationPermissionCard(
+              onOpenSettings: _locationPermissionService.openSettings,
+            ),
+          ),
+        Positioned(
+          right: 16,
+          bottom: 112,
+          child: _buildCircularMapButton(Icons.traffic_rounded),
+        ),
+        Positioned(
+          right: 16,
+          bottom: 48,
+          child: _buildCircularMapButton(Icons.my_location_rounded),
+        ),
+      ],
+    );
+  }
 
-        if (widget.onMapCreated != null) {
-          widget.onMapCreated!(mapboxMap);
-        }
-      },
+  Widget _buildCircularMapButton(IconData icon) {
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      shape: const CircleBorder(),
+      elevation: 3,
+      child: IconButton(
+        onPressed: () {},
+        icon: Icon(icon),
+      ),
+    );
+  }
+
+  Future<void> _enableLiveLocation(MapboxMap mapboxMap) async {
+    final permissionState = await _locationPermissionService.requestPermission();
+    if (!mounted) return;
+
+    setState(() => _locationPermissionState = permissionState);
+    if (permissionState != LocationPermissionState.granted) return;
+
+    await mapboxMap.location.updateSettings(
+      LocationComponentSettings(
+        enabled: true,
+        puckBearingEnabled: true,
+        pulsingEnabled: true,
+        showAccuracyRing: true,
+      ),
     );
   }
 }
