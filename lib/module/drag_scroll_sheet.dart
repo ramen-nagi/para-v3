@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 class DragScrollSheet extends StatefulWidget {
+  static final ValueNotifier<double> sheetExtent = ValueNotifier(0.22);
+
   final List<Widget> children;
   final double initialChildSize;
   final double minChildSize;
@@ -14,7 +16,7 @@ class DragScrollSheet extends StatefulWidget {
     this.initialChildSize = 0.22,
     this.minChildSize = 0.1,
     this.maxChildSize = 0.8,
-    this.snapSizes = const [0.22, 0.8],
+    this.snapSizes = const [0.1, 0.22, 0.8],
     this.snap = true,
   });
 
@@ -26,6 +28,19 @@ class _DragScrollSheetState extends State<DragScrollSheet> {
   final DraggableScrollableController _sheetController =
       DraggableScrollableController();
   bool _isExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    DragScrollSheet.sheetExtent.value = widget.initialChildSize;
+    _sheetController.addListener(_publishSheetExtent);
+  }
+
+  void _publishSheetExtent() {
+    if (_sheetController.isAttached) {
+      DragScrollSheet.sheetExtent.value = _sheetController.size;
+    }
+  }
 
   void _toggleSheetHeight() {
     final targetSize = _isExpanded
@@ -45,6 +60,7 @@ class _DragScrollSheetState extends State<DragScrollSheet> {
 
   @override
   void dispose() {
+    _sheetController.removeListener(_publishSheetExtent);
     _sheetController.dispose();
     super.dispose();
   }
@@ -63,7 +79,7 @@ class _DragScrollSheetState extends State<DragScrollSheet> {
           decoration: BoxDecoration(
             color: Theme.of(context).scaffoldBackgroundColor,
             borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(25),
+              top: Radius.circular(20),
             ),
           ),
           child: ListView(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:para_v3/module/drag_scroll_sheet.dart';
 import 'package:para_v3/module/location_permission_card.dart';
 import 'package:para_v3/services/location_permission_service.dart';
 
@@ -21,8 +22,48 @@ class UniversalMapTile extends StatefulWidget {
 }
 
 class _UniversalMapTileState extends State<UniversalMapTile> {
+  static const _maxVisibleSheetExtent = 0.221;
+
   final _locationPermissionService = const LocationPermissionService();
   LocationPermissionState? _locationPermissionState;
+  MapboxMap? _mapboxMap;
+
+  Future<void> _enableLiveLocation(MapboxMap mapboxMap) async {
+    final permissionState = await _locationPermissionService
+        .requestPermission();
+    if (!mounted) return;
+
+    setState(() => _locationPermissionState = permissionState);
+    if (permissionState != LocationPermissionState.granted) return;
+
+    await mapboxMap.location.updateSettings(
+      LocationComponentSettings(
+        enabled: true,
+        puckBearingEnabled: true,
+        pulsingEnabled: true,
+        showAccuracyRing: true,
+      ),
+    );
+  }
+
+  void _onSheetExtentChanged() {
+    if (!mounted) return;
+    _updateMapOrnamentMargins();
+  }
+
+  Future<void> _updateMapOrnamentMargins() async {
+    final map = _mapboxMap;
+    final sheetExtent = DragScrollSheet.sheetExtent.value;
+    if (map == null || sheetExtent > _maxVisibleSheetExtent || !mounted) {
+      return;
+    }
+
+    final bottomMargin = MediaQuery.sizeOf(context).height * sheetExtent;
+    await map.logo.updateSettings(LogoSettings(marginBottom: bottomMargin));
+    await map.attribution.updateSettings(
+      AttributionSettings(marginBottom: bottomMargin),
+    );
+  }
 
   @override
   void initState() {
@@ -30,6 +71,13 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
 
     final String? token = dotenv.env['MAPBOX_ACCESS_TOKEN'];
     MapboxOptions.setAccessToken(token!);
+    DragScrollSheet.sheetExtent.addListener(_onSheetExtentChanged);
+  }
+
+  @override
+  void dispose() {
+    DragScrollSheet.sheetExtent.removeListener(_onSheetExtentChanged);
+    super.dispose();
   }
 
   @override
@@ -51,6 +99,7 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
             zoom: widget.initialZoom,
           ),
           onMapCreated: (MapboxMap mapboxMap) async {
+            _mapboxMap = mapboxMap;
             await mapboxMap.setBounds(
               CameraBoundsOptions(
                 bounds: metroManilaBounds,
@@ -59,6 +108,8 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
               ),
             );
 
+            await _updateMapOrnamentMargins();
+
             await _enableLiveLocation(mapboxMap);
 
             if (widget.onMapCreated != null) {
@@ -66,7 +117,8 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
             }
           },
         ),
-        if (_locationPermissionState == LocationPermissionState.permanentlyDenied)
+        if (_locationPermissionState ==
+            LocationPermissionState.permanentlyDenied)
           Positioned(
             left: 16,
             right: 16,
@@ -75,15 +127,27 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
               onOpenSettings: _locationPermissionService.openSettings,
             ),
           ),
-        Positioned(
-          right: 16,
-          bottom: 112,
-          child: _buildCircularMapButton(Icons.traffic_rounded),
-        ),
-        Positioned(
-          right: 16,
-          bottom: 48,
-          child: _buildCircularMapButton(Icons.my_location_rounded),
+        ValueListenableBuilder<double>(
+          valueListenable: DragScrollSheet.sheetExtent,
+          builder: (context, sheetExtent, _) {
+            final cappedSheetExtent = sheetExtent
+                .clamp(0.0, _maxVisibleSheetExtent)
+                .toDouble();
+            final bottom =
+                MediaQuery.sizeOf(context).height * cappedSheetExtent;
+            return Positioned(
+              right: 16,
+              bottom: bottom,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildCircularMapButton(Icons.traffic_rounded),
+                  const SizedBox(height: 12),
+                  _buildCircularMapButton(Icons.my_location_rounded),
+                ],
+              ),
+            );
+          },
         ),
       ],
     );
@@ -97,23 +161,6 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
       child: IconButton(
         onPressed: () {},
         icon: Icon(icon),
-      ),
-    );
-  }
-
-  Future<void> _enableLiveLocation(MapboxMap mapboxMap) async {
-    final permissionState = await _locationPermissionService.requestPermission();
-    if (!mounted) return;
-
-    setState(() => _locationPermissionState = permissionState);
-    if (permissionState != LocationPermissionState.granted) return;
-
-    await mapboxMap.location.updateSettings(
-      LocationComponentSettings(
-        enabled: true,
-        puckBearingEnabled: true,
-        pulsingEnabled: true,
-        showAccuracyRing: true,
       ),
     );
   }
