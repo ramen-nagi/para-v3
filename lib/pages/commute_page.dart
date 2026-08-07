@@ -370,9 +370,14 @@ class _CommutePageState extends State<CommutePage> {
             suggestionsBuilder: (context, controller) async {
               final query = controller.text;
               final isShowRecents = query.trim().isEmpty;
-              final suggestions = isShowRecents
-                  ? await RecentsService.instance.getRecentSuggestions()
-                  : await _autocompleteGeocoding.getDebouncedSuggestions(query);
+              final List<PlaceSuggestion> suggestions;
+              if (isShowRecents) {
+                _autocompleteGeocoding.cancelPendingSuggestions();
+                suggestions = await RecentsService.instance.getRecentSuggestions();
+              } else {
+                suggestions = await _autocompleteGeocoding
+                    .getDebouncedSuggestions(query);
+              }
               if (controller.text != query) return const [];
 
               return suggestions

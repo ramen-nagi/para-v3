@@ -40,11 +40,7 @@ class AutocompleteGeocodingService {
   String? _sessionToken;
 
   Future<List<PlaceSuggestion>> getDebouncedSuggestions(String query) {
-    _debounce?.cancel();
-    final pendingSuggestions = _pendingSuggestions;
-    if (pendingSuggestions != null && !pendingSuggestions.isCompleted) {
-      pendingSuggestions.complete(<PlaceSuggestion>[]);
-    }
+    cancelPendingSuggestions();
     if (query.trim().isEmpty) return Future.value(<PlaceSuggestion>[]);
 
     final completer = Completer<List<PlaceSuggestion>>();
@@ -54,6 +50,14 @@ class AutocompleteGeocodingService {
       if (!completer.isCompleted) completer.complete(suggestions);
     });
     return completer.future;
+  }
+
+  void cancelPendingSuggestions() {
+    _debounce?.cancel();
+    final pendingSuggestions = _pendingSuggestions;
+    if (pendingSuggestions != null && !pendingSuggestions.isCompleted) {
+      pendingSuggestions.complete(<PlaceSuggestion>[]);
+    }
   }
 
   Future<List<PlaceSuggestion>> fetchAutocompleteSuggestions(
@@ -137,11 +141,7 @@ class AutocompleteGeocodingService {
   }
 
   void dispose() {
-    _debounce?.cancel();
-    final pendingSuggestions = _pendingSuggestions;
-    if (pendingSuggestions != null && !pendingSuggestions.isCompleted) {
-      pendingSuggestions.complete(<PlaceSuggestion>[]);
-    }
+    cancelPendingSuggestions();
   }
 
   String _generateSessionToken() {
