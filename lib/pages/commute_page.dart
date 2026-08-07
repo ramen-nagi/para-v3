@@ -6,6 +6,7 @@ import 'package:para_v3/services/autocomplete_geocoding_service.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'package:para_v3/services/map_matching_service.dart';
 import 'package:para_v3/services/raptor_pathfinding_service.dart';
+import 'package:para_v3/services/recents_service.dart';
 
 class CommutePage extends StatefulWidget {
   const CommutePage({super.key});
@@ -368,14 +369,19 @@ class _CommutePageState extends State<CommutePage> {
             barElevation: const WidgetStatePropertyAll(0),
             suggestionsBuilder: (context, controller) async {
               final query = controller.text;
-              final suggestions = await _autocompleteGeocoding
-                  .getDebouncedSuggestions(query);
+              final isShowRecents = query.trim().isEmpty;
+              final suggestions = isShowRecents
+                  ? await RecentsService.instance.getRecentSuggestions()
+                  : await _autocompleteGeocoding.getDebouncedSuggestions(query);
               if (controller.text != query) return const [];
 
               return suggestions
                   .map(
                     (suggestion) => ListTile(
+                      leading: isShowRecents ? const Icon(Icons.history) : const Icon(Icons.place_rounded),
                       onTap: () async {
+                        await RecentsService.instance.saveSuggestion(suggestion);
+                        if (!context.mounted) return;
                         controller.closeView(suggestion.mainText);
                         FocusScope.of(context).unfocus();
                         await onSuggestionSelected(suggestion);
