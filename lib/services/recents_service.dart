@@ -1,55 +1,76 @@
-import 'dart:convert';
+import 'dart:io';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:sqlite3/sqlite3.dart';
 
 class RecentsService {
   RecentsService._();
 
   static final RecentsService instance = RecentsService._();
 
-  static const _storageKey = 'recent_place_suggestions';
   static const _maxRecents = 10;
+  static const _databaseName = 'user_info.sqlite';
+  static const _tableName = 'recent_address';
 
   Future<List<PlaceSuggestion>> getRecentSuggestions() async {
-    final preferences = await SharedPreferences.getInstance();
-    final savedSuggestions = preferences.getStringList(_storageKey) ?? const [];
-
-    return savedSuggestions
-        .map(_decodeSuggestion)
-        .whereType<PlaceSuggestion>()
-        .toList();
-  }
-
-  Future<void> saveSuggestion(PlaceSuggestion suggestion) async {
-    final recents = await getRecentSuggestions();
-    recents.removeWhere((recent) => recent.placeId == suggestion.placeId);
-    recents.insert(0, suggestion);
-
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setStringList(
-      _storageKey,
-      recents.take(_maxRecents).map(_encodeSuggestion).toList(),
-    );
-  }
-
-  PlaceSuggestion? _decodeSuggestion(String value) {
+    final db = await _openDatabase();
     try {
-      final json = jsonDecode(value) as Map<String, dynamic>;
-      return PlaceSuggestion(
-        placeId: json['placeId'] as String,
-        mainText: json['mainText'] as String,
-        secondaryText: json['secondaryText'] as String,
-        fullText: json['fullText'] as String,
-      );
-    } catch (_) {
-      return null;
+      final rows = db.select('''
+        SELECT place_id, main_text, secondary_text, full_text
+        FROM $_tableName
+        ORDER BY rowid DESC
+        LIMIT $_maxRecents
+      ''');
+      return rows.map((row) => PlaceSuggestion(
+        placeId: row['place_id'] as String,
+        mainText: row['main_text'] as String,
+        secondaryText: row['secondary_text'] as String,
+        fullText: row['full_text'] as String,
+      )).toList();
+    } finally {
+      db.dispose();
     }
   }
 
-  String _encodeSuggestion(PlaceSuggestion suggestion) => jsonEncode({
-        'placeId': suggestion.placeId,
-        'mainText': suggestion.mainText,
-        'secondaryText': suggestion.secondaryText,
-        'fullText': suggestion.fullText,
-      });
+  Future<void> saveSuggestion(PlaceSuggestion suggestion) async {
+    final db = await _openDatabase();
+    try {
+      db.execute('''
+        INSERT OR REPLACE INTO $_tableName (
+          place_id, main_text, secondary_text, full_text
+        ) VALUES (?, ?, ?, ?)
+      ''', [
+        suggestion.placeId,
+        suggestion.mainText,
+        suggestion.secondaryText,
+        suggestion.fullText,
+      ]);
+      db.execute('''
+        DELETE FROM $_tableName
+        WHERE rowid NOT IN (
+          SELECT rowid FROM $_tableName
+          ORDER BY rowid DESC
+          LIMIT $_maxRecents
+        )
+      ''');
+    } finally {
+      db.dispose();
+    }
+  }
+
+  Future<Database> _openDatabase() async {
+    final appDirectory = await getApplicationDocumentsDirectory();
+    final databaseFile = File(p.join(appDirectory.path, _databaseName));
+    final db = sqlite3.open(databaseFile.path);
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS $_tableName (
+        place_id TEXT PRIMARY KEY,
+        main_text TEXT NOT NULL,
+        secondary_text TEXT NOT NULL,
+        full_text TEXT NOT NULL
+      )
+    ''');
+    return db;
+  }
 }
