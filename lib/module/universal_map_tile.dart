@@ -7,12 +7,14 @@ import 'package:para_v3/services/location_permission_service.dart';
 
 class UniversalMapTile extends StatefulWidget {
   final double initialZoom;
+  final bool isStartingCommute;
   final void Function(MapboxMap mapboxMap)? onMapCreated;
   final void Function(Point point)? onLongTap;
 
   const UniversalMapTile({
     super.key,
     this.initialZoom = 12.0,
+    this.isStartingCommute = false,
     this.onMapCreated,
     this.onLongTap,
   });
@@ -130,9 +132,9 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
         ValueListenableBuilder<double>(
           valueListenable: DragScrollSheet.sheetExtent,
           builder: (context, sheetExtent, _) {
-            final cappedSheetExtent = sheetExtent
-                .clamp(0.0, _maxVisibleSheetExtent)
-                .toDouble();
+            final cappedSheetExtent = widget.isStartingCommute
+                ? _maxVisibleSheetExtent
+                : sheetExtent.clamp(0.0, _maxVisibleSheetExtent).toDouble();
             final bottom =
                 MediaQuery.sizeOf(context).height * cappedSheetExtent + 8.0;
             return Positioned(

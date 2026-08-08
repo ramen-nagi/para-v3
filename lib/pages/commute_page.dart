@@ -742,6 +742,7 @@ class _CommutePageState extends State<CommutePage> {
           UniversalMapTile(
             key: const PageStorageKey('CommutePageTestMapTile'),
             initialZoom: 12.0,
+            isStartingCommute: _isStartingCommute,
             onMapCreated: _onMapCreated,
           ),
 
@@ -827,7 +828,25 @@ class _CommutePageState extends State<CommutePage> {
           ),
 
           if (_isStartingCommute && _selectedJourney != null)
-            _buildStartCommuteCard(_selectedJourney!)
+            ...[
+              _buildStartCommuteCard(_selectedJourney!),
+              Positioned(
+                bottom: MediaQuery.sizeOf(context).height * 0.221 + 8,
+                left: 16,
+                child: Material(
+                  color: Theme.of(context).colorScheme.surface,
+                  shape: const CircleBorder(),
+                  elevation: 3,
+                  child: IconButton(
+                    tooltip: 'Back to journey details',
+                    onPressed: () {
+                      setState(() => _isStartingCommute = false);
+                    },
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+              ),
+            ]
           else if (_isShowingSheet)
             DragScrollSheet(children: _buildJourneySheetChildren()),
 
