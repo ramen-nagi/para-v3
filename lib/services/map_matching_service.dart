@@ -5,6 +5,16 @@ import 'package:http/http.dart' as http;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 
+class MatchedRouteResult {
+  final List<Position> positions;
+  final double? distanceMeters;
+
+  const MatchedRouteResult({
+    required this.positions,
+    required this.distanceMeters,
+  });
+}
+
 class MapMatchingService {
   static List<StopsAndStopTimesModel> getStopsAndStopTimes(TripsModel trip) {
     if (trip.stopTimes.isEmpty) return [];
@@ -45,7 +55,8 @@ class MapMatchingService {
     return stops.sublist(fromIndex, toIndex + 1);
   }
 
-  static Future<List<Position>> fetchMapMatching({
+  // Used for transit other than vehicleType.train to draw polylines, get distance etc...
+  static Future<MatchedRouteResult?> fetchMapMatchingDriving({
     required String profile,
     required String tripId,
     String? startStop,
@@ -54,7 +65,7 @@ class MapMatchingService {
     final trip = _findTripById(tripId);
     if (trip == null) {
       debugPrint('No GTFS trip found for map matching: $tripId');
-      return [];
+      return null;
     }
 
     final stops = _getTripStops(trip, startStop, endStop);
@@ -63,22 +74,24 @@ class MapMatchingService {
     );
     if (coordinates.length < 2) {
       debugPrint('At least two stops are required for map matching.');
-      return [];
+      return null;
     }
 
     final accessToken = dotenv.env['MAPBOX_ACCESS_TOKEN'];
     if (accessToken == null || accessToken.isEmpty) {
       debugPrint('MAPBOX_ACCESS_TOKEN is missing or null.');
-      return [];
+      return null;
     }
 
     final formattedCoords = coordinates
         .map((position) => '${position.lng},${position.lat}')
         .join(';');
+    debugPrint(formattedCoords);
     final radiusesParam = List.filled(coordinates.length, '25').join(';');
     final Uri uri = Uri.parse(
-      'https://api.mapbox.com/matching/v5/mapbox/$profile/$formattedCoords'
+      'https://api.mapbox.com/matching/v5/mapbox/driving-traffic/$formattedCoords'
       '?steps=true'
+      '&annotations=distance,congestion_numeric'
       '&radiuses=$radiusesParam'
       '&geometries=geojson'
       '&overview=full'
@@ -88,18 +101,25 @@ class MapMatchingService {
 
     try {
       final response = await http.get(uri);
+      final formattedResponse = const JsonEncoder.withIndent(
+        '  ',
+      ).convert(jsonDecode(response.body));
+      debugPrint(
+        'Mapbox driving map matching response:\n$formattedResponse',
+        wrapWidth: 120,
+      );
       if (response.statusCode != 200) {
         debugPrint(
           'Mapbox map matching failed (${response.statusCode}): ${response.body}',
         );
-        return [];
+        return null;
       }
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final matchings = data['matchings'] as List?;
-      if (matchings == null || matchings.isEmpty) return [];
+      if (matchings == null || matchings.isEmpty) return null;
 
-      return matchings
+      final positions = matchings
           .expand((matching) => matching['geometry']['coordinates'] as List)
           .map(
             (coordinate) => Position(
@@ -108,20 +128,30 @@ class MapMatchingService {
             ),
           )
           .toList();
+      final distanceMeters = matchings.fold<double>(
+        0,
+        (total, matching) =>
+            total + ((matching['distance'] as num?)?.toDouble() ?? 0),
+      );
+      return MatchedRouteResult(
+        positions: positions,
+        distanceMeters: distanceMeters,
+      );
     } catch (error) {
       debugPrint('Error requesting map matching polyline: $error');
-      return [];
+      return null;
     }
   }
 
-  static Future<List<Position>> fetchWalkingRoute(
+  // Used for walking legs of a journey to get distance, polylines etc...
+  static Future<MatchedRouteResult?> fetchMapMatchingWalking(
     Position start,
     Position end,
   ) async {
     final accessToken = dotenv.env['MAPBOX_ACCESS_TOKEN'];
     if (accessToken == null || accessToken.isEmpty) {
       debugPrint('MAPBOX_ACCESS_TOKEN is missing or null.');
-      return [];
+      return null;
     }
 
     final Uri uri = Uri.parse(
@@ -129,6 +159,8 @@ class MapMatchingService {
       '${start.lng},${start.lat};${end.lng},${end.lat}'
       '?geometries=geojson'
       '&overview=full'
+      '&annotations=distance'
+      '&steps=true'
       '&access_token=$accessToken',
     );
 
@@ -138,15 +170,17 @@ class MapMatchingService {
         debugPrint(
           'Mapbox walking directions failed (${response.statusCode}): ${response.body}',
         );
-        return [];
+        return null;
       }
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final routes = data['routes'] as List?;
-      if (routes == null || routes.isEmpty) return [];
+      if (routes == null || routes.isEmpty) return null;
 
-      final coordinates = routes.first['geometry']['coordinates'] as List;
-      return coordinates
+      final route = routes.first as Map<String, dynamic>;
+      final totalDistance = (route['distance'] as num?)?.toDouble();
+      final coordinates = route['geometry']['coordinates'] as List;
+      final positions = coordinates
           .map(
             (coordinate) => Position(
               (coordinate[0] as num).toDouble(),
@@ -154,9 +188,13 @@ class MapMatchingService {
             ),
           )
           .toList();
+      return MatchedRouteResult(
+        positions: positions,
+        distanceMeters: totalDistance,
+      );
     } catch (error) {
       debugPrint('Error requesting walking route: $error');
-      return [];
+      return null;
     }
   }
 

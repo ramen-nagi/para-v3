@@ -14,7 +14,8 @@ enum VehicleType {
   train(2),
   jeep(3),
   bus(4),
-  uvExpress(5)
+  uvExpress(5),
+  walk(6)
   ;
 
   final int rawValue;

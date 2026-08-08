@@ -99,9 +99,9 @@ class _CommutePageState extends State<CommutePage> {
 
     final stopPositions = <String, Position>{};
     for (final leg in journey.legs) {
-      if (leg is! TransitLeg) continue;
+      if (leg.isWalking) continue;
 
-      final trip = MapMatchingService.getTripById(leg.tripId);
+      final trip = MapMatchingService.getTripById(leg.tripId!);
       if (trip == null) continue;
 
       for (final stop in MapMatchingService.getStopsAndStopTimes(trip)) {
@@ -223,28 +223,29 @@ class _CommutePageState extends State<CommutePage> {
 
       final sourceId = 'commute-leg-source-$index';
       final layerId = 'commute-leg-layer-$index';
-      if (leg is WalkLeg) {
+      if (leg.isWalking) {
         final start = _positionForLegStop(leg.fromStopId);
         final end = _positionForLegStop(leg.toStopId);
         if (start == null || end == null) continue;
 
-        final positions = await MapMatchingService.fetchWalkingRoute(
+        final result = await MapMatchingService.fetchMapMatchingWalking(
           start,
           end,
         );
         if (renderRequestId != _polylineRenderRequestId) return;
+        if (result == null) continue;
+        if (mounted) setState(() => leg.distance = result.distanceMeters);
         await MapMatchingService.drawWalkPolyline(
           map,
-          positions,
+          result.positions,
           sourceId: sourceId,
           layerId: layerId,
         );
         continue;
       }
-      if (leg is! TransitLeg) continue;
 
       if (leg.vehicleType == VehicleType.train) {
-        final trip = MapMatchingService.getTripById(leg.tripId);
+        final trip = MapMatchingService.getTripById(leg.tripId!);
         if (trip != null) {
           await MapMatchingService.drawShapePolyline(
             map,
@@ -260,16 +261,18 @@ class _CommutePageState extends State<CommutePage> {
         continue;
       }
 
-      final positions = await MapMatchingService.fetchMapMatching(
+      final result = await MapMatchingService.fetchMapMatchingDriving(
         profile: 'driving-traffic',
-        tripId: leg.tripId,
+        tripId: leg.tripId!,
         startStop: leg.fromStopName,
         endStop: leg.toStopName,
       );
       if (renderRequestId != _polylineRenderRequestId) return;
+      if (result == null) continue;
+      if (mounted) setState(() => leg.distance = result.distanceMeters);
       await MapMatchingService.drawRoutePolyline(
         map,
-        positions,
+        result.positions,
         sourceId: sourceId,
         layerId: layerId,
         fitCamera: false,
@@ -346,6 +349,8 @@ class _CommutePageState extends State<CommutePage> {
         return 'Bus';
       case VehicleType.uvExpress:
         return 'UV Express';
+      case VehicleType.walk:
+        return 'Walk';
       default:
         return 'Transit';
     }
@@ -455,6 +460,7 @@ class _CommutePageState extends State<CommutePage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('Total distance'),
+                // TODO: Get the total distance of all walk legs
                 Text('Walking distance'),
                 Text('Total fare'),
               ],
@@ -462,7 +468,7 @@ class _CommutePageState extends State<CommutePage> {
             const SizedBox(height: 12),
 
             if (isSelected) ...[
-              _buildJourneyDetails(journey),
+              _buildSelectedJourneyCard(journey),
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
@@ -497,9 +503,7 @@ class _CommutePageState extends State<CommutePage> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          leg is TransitLeg
-                              ? _getVehicleTypeString(leg.vehicleType)
-                              : 'Walk',
+                          _getVehicleTypeString(leg.vehicleType),
                         ),
                       ),
                   ],
@@ -513,16 +517,10 @@ class _CommutePageState extends State<CommutePage> {
 
   Widget _buildStartCommuteCard(Journey journey) {
     final leg = journey.legs[_currentLegIndex];
-    final vehicleType = leg is TransitLeg
-        ? _getVehicleTypeString(leg.vehicleType)
-        : 'Walk';
-    final routeLongName = leg is TransitLeg ? leg.routeLongName : 'Walking';
-    final legFromStop = leg is TransitLeg
-        ? leg.fromStopName
-        : (leg as WalkLeg).fromStopName;
-    final legToStop = leg is TransitLeg
-        ? leg.toStopName
-        : (leg as WalkLeg).toStopName;
+    final vehicleType = _getVehicleTypeString(leg.vehicleType);
+    final routeLongName = leg.routeLongName ?? 'Walking';
+    final legFromStop = leg.fromStopName;
+    final legToStop = leg.toStopName;
     final fromStop = _currentLegIndex == 0
         ? (_originSelected?.mainText ?? legFromStop)
         : legFromStop;
@@ -572,9 +570,9 @@ class _CommutePageState extends State<CommutePage> {
                 ],
               ),
               const SizedBox(height: 16),
-              const Row(
+              Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [Text('Distance'), Text('Fare')],
+                children: [Text(_formatDistance(leg.distance)), const Text('Fare')],
               ),
               const SizedBox(height: 12),
               Row(
@@ -648,7 +646,7 @@ class _CommutePageState extends State<CommutePage> {
     );
   }
 
-  Widget _buildJourneyDetails(Journey journey) {
+  Widget _buildSelectedJourneyCard(Journey journey) {
     final destinationText = _destinationSelected?.mainText ?? 'Destination';
 
     return Column(
@@ -688,9 +686,7 @@ class _CommutePageState extends State<CommutePage> {
   }
 
   Widget _buildJourneyLegRow(Leg leg) {
-    final vehicleLabel = leg is TransitLeg
-        ? _getVehicleTypeString(leg.vehicleType)
-        : 'Walk';
+    final vehicleLabel = _getVehicleTypeString(leg.vehicleType);
 
     return Padding(
       padding: const EdgeInsets.only(left: 10, top: 4, bottom: 4),
@@ -713,17 +709,23 @@ class _CommutePageState extends State<CommutePage> {
             child: Text(vehicleLabel),
           ),
           const SizedBox(width: 8),
-          const Expanded(child: Text('Distance')),
+          Expanded(
+            child: Text(_formatDistance(leg.distance)),
+          ),
           const Text('Fare'),
         ],
       ),
     );
   }
 
+  String _formatDistance(double? meters) {
+    if (meters == null) return '—';
+    if (meters >= 1000) return '${(meters / 1000).toStringAsFixed(1)} km';
+    return '${meters.toStringAsFixed(0)} m';
+  }
+
   String _legToStopName(Leg leg) {
-    if (leg is TransitLeg) return leg.toStopName;
-    if (leg is WalkLeg) return leg.toStopName;
-    return 'Stop';
+    return leg.toStopName;
   }
 
   @override

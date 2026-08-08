@@ -73,11 +73,16 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
             if (widget.route.vehicleType == VehicleType.train) {
               await MapMatchingService.drawShapePolyline(map, trip);
             } else {
-              final positions = await MapMatchingService.fetchMapMatching(
+              final result = await MapMatchingService.fetchMapMatchingDriving(
                 profile: 'driving-traffic',
                 tripId: trip.tripId,
               );
-              await MapMatchingService.drawRoutePolyline(map, positions);
+              if (result != null) {
+                await MapMatchingService.drawRoutePolyline(
+                  map,
+                  result.positions,
+                );
+              }
             }
           },
         ),

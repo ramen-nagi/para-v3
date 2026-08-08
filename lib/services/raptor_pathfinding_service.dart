@@ -5,62 +5,31 @@ import 'package:para_v3/services/gtfs_network_service.dart';
 class Leg {
   final String fromStopId;
   final String toStopId;
-  final int startTime;
-  final int endTime;
+  final String fromStopName;
+  final String toStopName;
   final String? routeId;
-  final bool isWalking;
-  final double? distance;
+  final String? tripId;
+  final String? routeLongName;
+  final VehicleType vehicleType;
+  double? distance;
+  final double? fare;
+  final String? traffic;
 
   Leg({
     required this.fromStopId,
     required this.toStopId,
-    required this.startTime,
-    required this.endTime,
-    this.routeId,
-    required this.isWalking,
-    this.distance,
-  });
-}
-
-class WalkLeg extends Leg {
-  final String fromStopName;
-  final String toStopName;
-
-  WalkLeg({
-    required super.fromStopId,
-    required super.toStopId,
-    required super.distance,
     required this.fromStopName,
     required this.toStopName,
-  }) : super(
-          startTime: 0,
-          endTime: 0,
-          isWalking: true,
-        );
-}
-
-class TransitLeg extends Leg {
-  final String tripId;
-  final String routeLongName;
-  final VehicleType vehicleType;
-  final String fromStopName;
-  final String toStopName;
-
-  TransitLeg({
-    required super.fromStopId,
-    required super.toStopId,
-    required super.routeId,
-    required this.tripId,
-    required super.distance,
-    required this.routeLongName,
     required this.vehicleType,
-    required this.fromStopName,
-    required this.toStopName,
-  }) : super(
-          startTime: 0,
-          endTime: 0,
-          isWalking: false,
-        );
+    this.routeId,
+    this.tripId,
+    this.routeLongName,
+    this.distance,
+    this.fare,
+    this.traffic,
+  });
+
+  bool get isWalking => vehicleType == VehicleType.walk;
 }
 
 class Journey {
@@ -509,12 +478,13 @@ class RaptorPathfindingService {
       Journey journey;
       if (meta.stopId == "__DIRECT__") {
         journey = Journey([
-          WalkLeg(
+          Leg(
             fromStopId: "__ORIGIN__",
             toStopId: "__DESTINATION__",
             distance: meta.finalDist,
             fromStopName: 'origin',
             toStopName: 'destination',
+            vehicleType: VehicleType.walk,
           ),
         ]);
       } else {
@@ -546,12 +516,13 @@ class RaptorPathfindingService {
 
     final lastStop = allStops[lastStopId]!;
     legs.add(
-      WalkLeg(
+      Leg(
         fromStopId: lastStopId,
         toStopId: "__DESTINATION__",
         distance: lastDist,
         fromStopName: lastStop.stopName,
         toStopName: 'destination',
+        vehicleType: VehicleType.walk,
       ),
     );
 
@@ -567,12 +538,13 @@ class RaptorPathfindingService {
       if (isWalking) {
         legs.insert(
           0,
-          WalkLeg(
+          Leg(
             fromStopId: parent.fromStopId,
             toStopId: currentStopId,
             distance: parent.distance ?? 0.0,
             fromStopName: fromStop?.stopName ?? 'origin',
             toStopName: toStop!.stopName,
+            vehicleType: VehicleType.walk,
           ),
         );
       } else {
@@ -591,7 +563,7 @@ class RaptorPathfindingService {
 
         legs.insert(
           0,
-          TransitLeg(
+          Leg(
             fromStopId: parent.fromStopId,
             toStopId: currentStopId,
             routeId: parent.routeId!,
