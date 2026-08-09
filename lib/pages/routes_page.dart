@@ -201,35 +201,21 @@ class _RoutesPageState extends State<RoutesPage> {
 
             const SizedBox(height: 12),
 
-            // 2. Vehicle Mode Tab Bar
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  _buildTabItem('Bus', VehicleType.bus, Icons.directions_bus),
-                  _buildTabItem(
-                    'Jeep',
-                    VehicleType.jeep,
-                    Icons.airport_shuttle,
-                  ),
-                  _buildTabItem('Train', VehicleType.train, Icons.train),
-                  _buildTabItem(
-                    'Tricycle',
-                    VehicleType.tricycle,
-                    Icons.pedal_bike,
-                  ),
-                  _buildTabItem(
-                    'UV Express',
-                    VehicleType.uvExpress,
-                    Icons.directions_car,
-                  ),
+                  _buildTabItem(VehicleType.bus, Icons.directions_bus),
+                  _buildTabItem(VehicleType.jeep, Icons.airport_shuttle),
+                  _buildTabItem(VehicleType.train, Icons.train),
+                  _buildTabItem(VehicleType.tricycle, Icons.pedal_bike),
+                  _buildTabItem(VehicleType.uvExpress, Icons.directions_car),
                 ],
               ),
             ),
 
             const Divider(height: 16),
 
-            // 3. Category List
             Expanded(
               child: _buildRouteListContent(
                 service,
@@ -243,7 +229,7 @@ class _RoutesPageState extends State<RoutesPage> {
     );
   }
 
-  Widget _buildTabItem(String label, VehicleType type, IconData icon) {
+  Widget _buildTabItem(VehicleType type, IconData icon) {
     final isSelected = _selectedType == type;
 
     return InkWell(
@@ -268,15 +254,6 @@ class _RoutesPageState extends State<RoutesPage> {
               color: isSelected ? Theme.of(context).primaryColor : Colors.grey,
             ),
             const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                color: isSelected
-                    ? Theme.of(context).primaryColor
-                    : Colors.black87,
-              ),
-            ),
           ],
         ),
       ),

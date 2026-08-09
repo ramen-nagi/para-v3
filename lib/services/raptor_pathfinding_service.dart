@@ -12,8 +12,9 @@ class Leg {
   final String? routeLongName;
   final VehicleType vehicleType;
   double? distance;
+  double? durationSeconds;
   final double? fare;
-  final String? traffic;
+  List<String?>? traffic;
 
   Leg({
     required this.fromStopId,
@@ -25,6 +26,7 @@ class Leg {
     this.tripId,
     this.routeLongName,
     this.distance,
+    this.durationSeconds,
     this.fare,
     this.traffic,
   });
