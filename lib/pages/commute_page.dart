@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:para_v3/module/drag_scroll_sheet.dart';
 import 'package:para_v3/module/location_textfield.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
 import 'package:para_v3/pages/commute_page_input.dart';
@@ -19,6 +20,7 @@ class _CommutePageState extends State<CommutePage> {
   final _destinationController = TextEditingController();
   Position? _originPosition;
   Position? _destinationPosition;
+  List<Journey> _journeys = [];
 
   @override
   void dispose() {
@@ -60,6 +62,8 @@ class _CommutePageState extends State<CommutePage> {
       await _enrichJourneyLegs(journey);
     }
     if (!mounted) return;
+
+    setState(() => _journeys = journeys);
 
     debugPrint('RAPTOR returned ${journeys.length} journey(s).');
     for (var journeyIndex = 0; journeyIndex < journeys.length; journeyIndex++) {
@@ -206,13 +210,128 @@ class _CommutePageState extends State<CommutePage> {
     return nearestIndex;
   }
 
+  Widget _buildJourneyCardOverview(Journey journey) {
+    final totalDistance = journey.legs.fold<double>(
+      0,
+      (total, leg) => total + (leg.distance ?? 0),
+    );
+    final walkingDistance = journey.legs
+        .where((leg) => leg.isWalking)
+        .fold<double>(0, (total, leg) => total + (leg.distance ?? 0));
+
+    final hasDuration = journey.legs.any((leg) => leg.durationSeconds != null);
+    final totalDuration = journey.legs.fold<double>(
+      0,
+      (total, leg) => total + (leg.durationSeconds ?? 0),
+    );
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _buildOverviewValue(
+                    'Total distance',
+                    _formatDistance(totalDistance),
+                  ),
+                ),
+                Expanded(
+                  child: _buildOverviewValue(
+                    'Walking distance',
+                    _formatDistance(walkingDistance),
+                  ),
+                ),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text('Fare'),
+                      SizedBox(height: 2),
+                      Text('—', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                for (final leg in journey.legs)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Icon(_vehicleTypeIcon(leg.vehicleType)),
+                  ),
+                const Spacer(),
+                const Icon(Icons.schedule, size: 18),
+                const SizedBox(width: 4),
+                Text(_formatDuration(hasDuration ? totalDuration : null)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOverviewValue(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label),
+        const SizedBox(height: 2),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+      ],
+    );
+  }
+
+  IconData _vehicleTypeIcon(VehicleType vehicleType) {
+    switch (vehicleType) {
+      case VehicleType.walk:
+        return Icons.directions_walk;
+      case VehicleType.train:
+        return Icons.train;
+      case VehicleType.bus:
+        return Icons.directions_bus;
+      case VehicleType.jeep:
+        return Icons.airport_shuttle;
+      case VehicleType.tricycle:
+        return Icons.moped;
+      case VehicleType.uvExpress:
+        return Icons.directions_car;
+      case VehicleType.unknown:
+        return Icons.directions_transit;
+    }
+  }
+
+  String _formatDistance(double? distanceMeters) {
+    if (distanceMeters == null) return 'Distance unavailable';
+    if (distanceMeters >= 1000) {
+      return '${(distanceMeters / 1000).toStringAsFixed(1)} km';
+    }
+    return '${distanceMeters.toStringAsFixed(0)} m';
+  }
+
+  String _formatDuration(double? durationSeconds) {
+    if (durationSeconds == null) return 'Duration unavailable';
+    if (durationSeconds >= 60) {
+      return '${(durationSeconds / 60).round()} min';
+    }
+    return '${durationSeconds.toStringAsFixed(0)} sec';
+  }
+
+  // TODO: Add _buildExpandedJourneyView(journey)
+
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
         const UniversalMapTile(),
         Positioned(
-          top: 40,
+          top: 25,
           left: 8,
           right: 8,
           child: LocationTextfield(
@@ -224,6 +343,15 @@ class _CommutePageState extends State<CommutePage> {
                 _openInputPage(CommuteInputField.destination),
           ),
         ),
+        if (_journeys.isNotEmpty)
+          DragScrollSheet(
+            children: [
+              Text('${_journeys.length} journeys found'),
+              const SizedBox(height: 8),
+              for (var index = 0; index < _journeys.length; index++)
+                _buildJourneyCardOverview(_journeys[index]),
+            ],
+          ),
       ],
     );
   }

@@ -13,10 +13,10 @@ class DragScrollSheet extends StatefulWidget {
   const DragScrollSheet({
     super.key,
     required this.children,
-    this.initialChildSize = 0.22,
+    this.initialChildSize = 0.5,
     this.minChildSize = 0.1,
-    this.maxChildSize = 0.8,
-    this.snapSizes = const [0.1, 0.22, 0.8],
+    this.maxChildSize = 0.5,
+    this.snapSizes = const [0.1, 0.22, 0.5],
     this.snap = true,
   });
 
