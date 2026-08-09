@@ -1,17 +1,19 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:para_v3/services/gtfs_network_service.dart';
 
-class MapMatchingResult {
+class RouteMetadataResult {
   final List<Position> coordinates;
   final double distanceMeters;
-  final double durationSeconds;
-  final List<String?> traffic;
+  final double? durationSeconds;
+  final List<String?>? traffic;
 
-  const MapMatchingResult({
+  const RouteMetadataResult({
     required this.coordinates,
     required this.distanceMeters,
     required this.durationSeconds,
@@ -20,7 +22,7 @@ class MapMatchingResult {
 }
 
 class MapMatchingService {
-  static Future<MapMatchingResult?> fetchMapMatching(
+  static Future<RouteMetadataResult?> fetchMapMatching(
     String profile,
     List<Position> coordinates,
   ) async {
@@ -66,13 +68,16 @@ class MapMatchingService {
       final congestionValues = <String?>[];
       final matchedCoordinates = <Position>[];
 
-      for (var matchingIndex = 0;
-          matchingIndex < matchings.length;
-          matchingIndex++) {
+      for (
+        var matchingIndex = 0;
+        matchingIndex < matchings.length;
+        matchingIndex++
+      ) {
         final matching = matchings[matchingIndex] as Map<String, dynamic>;
         final legs = matching['legs'] as List? ?? const [];
         final geometry = matching['geometry'] as Map<String, dynamic>?;
-        final geometryCoordinates = geometry?['coordinates'] as List? ?? const [];
+        final geometryCoordinates =
+            geometry?['coordinates'] as List? ?? const [];
         matchedCoordinates.addAll(
           geometryCoordinates.map(
             (coordinate) => Position(
@@ -116,7 +121,7 @@ class MapMatchingService {
         'duration=${totalDurationInSeconds.toStringAsFixed(2)} s',
       );
 
-      return MapMatchingResult(
+      return RouteMetadataResult(
         coordinates: matchedCoordinates,
         distanceMeters: totalDistance,
         durationSeconds: totalDurationInSeconds,
@@ -128,6 +133,50 @@ class MapMatchingService {
     }
   }
 
+  static Future<RouteMetadataResult> fetchRouteMetadataResultTrain(
+    VehicleType vehicleType,
+    List<Position> shapeCoordinates,
+  ) async {
+    var distanceMeters = 0.0;
+    for (var index = 1; index < shapeCoordinates.length; index++) {
+      distanceMeters += _straightLineDistanceMeters(
+        shapeCoordinates[index - 1],
+        shapeCoordinates[index],
+      );
+    }
+
+    debugPrint(
+      'Map Matching totals: '
+      'distance=$distanceMeters m; '
+      'duration=${Duration(minutes: 20).inSeconds.toDouble()} s',
+    );
+
+    return RouteMetadataResult(
+      coordinates: shapeCoordinates,
+      distanceMeters: distanceMeters,
+      durationSeconds: const Duration(minutes: 20).inSeconds.toDouble(),
+      traffic: null,
+    );
+  }
+
+  static double _straightLineDistanceMeters(Position first, Position second) {
+    const metersPerLatitudeDegree = 110540.0;
+    const metersPerLongitudeDegreeAtEquator = 111320.0;
+
+    final averageLatitudeRadians =
+        ((first.lat.toDouble() + second.lat.toDouble()) / 2) * math.pi / 180;
+    final deltaX =
+        (second.lng.toDouble() - first.lng.toDouble()) *
+        metersPerLongitudeDegreeAtEquator *
+        math.cos(averageLatitudeRadians);
+    final deltaY =
+        (second.lat.toDouble() - first.lat.toDouble()) *
+        metersPerLatitudeDegree;
+
+    return math.sqrt(deltaX * deltaX + deltaY * deltaY);
+  }
+
+  // Use List<Position> on RouteMetadataResult.coordinates to snap polylines to roads
   static Future<void> drawPolyline(
     MapboxMap map,
     List<Position> positions, {

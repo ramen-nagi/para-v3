@@ -33,6 +33,15 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
         .toList();
   }
 
+  List<Position> _getShapeCoordinates(TripsModel trip) {
+    final shapes = List<ShapesModel>.from(trip.shapes ?? [])
+      ..sort((a, b) => a.shapePtSequence.compareTo(b.shapePtSequence));
+
+    return shapes
+        .map((shape) => Position(shape.shapePtLon, shape.shapePtLat))
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -52,11 +61,16 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
                     final map = _mapboxMap;
                     if (map == null) return;
 
-                    final coordinates = _getStopTimesStopsCoord(trip.tripId);
-                    final result = await MapMatchingService.fetchMapMatching(
-                      'driving-traffic',
-                      coordinates,
-                    );
+                    final isTrain = widget.route.vehicleType == VehicleType.train;
+                    final result = isTrain
+                        ? await MapMatchingService.fetchRouteMetadataResultTrain(
+                            widget.route.vehicleType,
+                            _getShapeCoordinates(trip),
+                          )
+                        : await MapMatchingService.fetchMapMatching(
+                            'driving-traffic',
+                            _getStopTimesStopsCoord(trip.tripId),
+                          );
                     if (result == null) return;
 
                     await MapMatchingService.drawPolyline(
@@ -64,6 +78,7 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
                       result.coordinates,
                     );
                   },
+                  // TODO: Make the button display the start and end stopNames
                   child: Text(trip.tripId),
                 ),
             ],
