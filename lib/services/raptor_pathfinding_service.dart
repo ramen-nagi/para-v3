@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 
 class Leg {
@@ -11,6 +12,7 @@ class Leg {
   final String? tripId;
   final String? routeLongName;
   final VehicleType vehicleType;
+  List<Position>? coordinates;
   double? distance;
   double? durationSeconds;
   final double? fare;
@@ -25,6 +27,7 @@ class Leg {
     this.routeId,
     this.tripId,
     this.routeLongName,
+    this.coordinates,
     this.distance,
     this.durationSeconds,
     this.fare,

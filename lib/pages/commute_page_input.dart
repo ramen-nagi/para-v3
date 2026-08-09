@@ -6,16 +6,30 @@ import 'package:para_v3/services/recents_service.dart';
 
 enum CommuteInputField { origin, destination }
 
+class CommuteInputResult {
+  final Position originPosition;
+  final Position destinationPosition;
+
+  const CommuteInputResult({
+    required this.originPosition,
+    required this.destinationPosition,
+  });
+}
+
 class CommutePageInput extends StatefulWidget {
   final TextEditingController originController;
   final TextEditingController destinationController;
   final CommuteInputField initialField;
+  final Position? originPosition;
+  final Position? destinationPosition;
 
   const CommutePageInput({
     super.key,
     required this.originController,
     required this.destinationController,
     required this.initialField,
+    this.originPosition,
+    this.destinationPosition,
   });
 
   @override
@@ -35,6 +49,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
   @override
   void initState() {
     super.initState();
+    _originPosition = widget.originPosition;
+    _destinationPosition = widget.destinationPosition;
     _originFocusNode.addListener(_onOriginFocusChanged);
     _destinationFocusNode.addListener(_onDestinationFocusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -108,6 +124,17 @@ class _CommutePageInputState extends State<CommutePageInput> {
       '${isDestination ? 'Destination' : 'Origin'} coordinates: '
       'lat=${position.lat}, lng=${position.lng}',
     );
+
+    final origin = _originPosition;
+    final destination = _destinationPosition;
+    if (origin != null && destination != null) {
+      Navigator.of(context).pop(
+        CommuteInputResult(
+          originPosition: origin,
+          destinationPosition: destination,
+        ),
+      );
+    }
   }
 
   @override

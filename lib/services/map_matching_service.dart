@@ -33,13 +33,16 @@ class MapMatchingService {
         .join(';');
 
     final radiuses = List.filled(coordinates.length, '25').join(';');
+    final annotations = profile == 'driving-traffic'
+        ? 'distance,duration,congestion'
+        : 'distance,duration';
 
     final uri = Uri.parse(
       'https://api.mapbox.com/matching/v5/mapbox/$profile/'
       '$formattedCoordinates'
       '?steps=true'
       '&radiuses=$radiuses'
-      '&annotations=distance,duration,congestion'
+      '&annotations=$annotations'
       '&geometries=geojson'
       '&overview=full'
       '&tidy=true'
@@ -125,7 +128,7 @@ class MapMatchingService {
         coordinates: matchedCoordinates,
         distanceMeters: totalDistance,
         durationSeconds: totalDurationInSeconds,
-        traffic: congestionValues,
+        traffic: congestionValues.isEmpty ? null : congestionValues,
       );
     } catch (error) {
       debugPrint('Error requesting Mapbox map matching: $error');
