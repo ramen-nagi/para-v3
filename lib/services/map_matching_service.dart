@@ -6,18 +6,21 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
+import 'package:para_v3/services/raptor_pathfinding_service.dart';
 
 class RouteMetadataResult {
   final List<Position> coordinates;
   final double distanceMeters;
   final double? durationSeconds;
   final List<String?>? traffic;
+  final List<NavigationStep>? steps;
 
   const RouteMetadataResult({
     required this.coordinates,
     required this.distanceMeters,
     required this.durationSeconds,
     required this.traffic,
+    this.steps,
   });
 }
 
@@ -70,6 +73,7 @@ class MapMatchingService {
       final durationsInSeconds = <double>[];
       final congestionValues = <String?>[];
       final matchedCoordinates = <Position>[];
+      final navigationSteps = <NavigationStep>[];
 
       for (
         var matchingIndex = 0;
@@ -103,6 +107,18 @@ class MapMatchingService {
               congestion.map((value) => value is String ? value : null),
             );
           }
+          final steps = leg['steps'] as List? ?? const [];
+          for (final step in steps) {
+            final stepData = step as Map<String, dynamic>;
+            final maneuver = stepData['maneuver'] as Map<String, dynamic>?;
+            final instruction = maneuver?['instruction'] as String?;
+            if (instruction == null || instruction.isEmpty) continue;
+            navigationSteps.add(NavigationStep(
+              instruction: instruction,
+              distanceMeters: (stepData['distance'] as num?)?.toDouble(),
+              durationSeconds: (stepData['duration'] as num?)?.toDouble(),
+            ));
+          }
 
           debugPrint(
             'Match ${matchingIndex + 1}, leg ${legIndex + 1}: '
@@ -129,6 +145,7 @@ class MapMatchingService {
         distanceMeters: totalDistance,
         durationSeconds: totalDurationInSeconds,
         traffic: congestionValues.isEmpty ? null : congestionValues,
+        steps: navigationSteps.isEmpty ? null : navigationSteps,
       );
     } catch (error) {
       debugPrint('Error requesting Mapbox map matching: $error');

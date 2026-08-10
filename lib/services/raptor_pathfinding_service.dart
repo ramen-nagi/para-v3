@@ -3,6 +3,18 @@ import 'package:flutter/foundation.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 
+class NavigationStep {
+  final String instruction;
+  final double? distanceMeters;
+  final double? durationSeconds;
+
+  const NavigationStep({
+    required this.instruction,
+    this.distanceMeters,
+    this.durationSeconds,
+  });
+}
+
 class Leg {
   final String fromStopId;
   final String toStopId;
@@ -17,6 +29,7 @@ class Leg {
   double? durationSeconds;
   final double? fare;
   List<String?>? traffic;
+  List<NavigationStep>? steps;
 
   Leg({
     required this.fromStopId,
@@ -32,6 +45,7 @@ class Leg {
     this.durationSeconds,
     this.fare,
     this.traffic,
+    this.steps,
   });
 
   bool get isWalking => vehicleType == VehicleType.walk;

@@ -17,6 +17,8 @@ class CommutePage extends StatefulWidget {
   State<CommutePage> createState() => _CommutePageState();
 }
 
+enum _CommuteSheetView { journeyOverviews, journeyDetails, activeLeg }
+
 class _CommutePageState extends State<CommutePage> {
   final _originController = TextEditingController();
   final _destinationController = TextEditingController();
@@ -27,6 +29,11 @@ class _CommutePageState extends State<CommutePage> {
   MapboxMap? _mapboxMap;
   CircleAnnotationManager? _endpointAnnotationManager;
   CircleAnnotationManager? _intermediateStopsAnnotationManager;
+  _CommuteSheetView _sheetView = _CommuteSheetView.journeyOverviews;
+  int _activeLegIndex = 0;
+  int _drawnJourneyPolylineCount = 0;
+
+  bool get _isCommuting => _sheetView == _CommuteSheetView.activeLeg;
 
   @override
   void dispose() {
@@ -49,6 +56,7 @@ class _CommutePageState extends State<CommutePage> {
     );
     if (!mounted || result == null) return;
 
+    await _clearJourneyMapOverlays();
     setState(() {
       _originPosition = result.originPosition;
       _destinationPosition = result.destinationPosition;
@@ -58,6 +66,7 @@ class _CommutePageState extends State<CommutePage> {
   }
 
   Future<void> _runRaptor(Position origin, Position destination) async {
+    debugPrint('Running RAPTOR for updated origin and destination.');
     final journeys = RaptorPathfindingService.instance.findJourneys(
       originLat: origin.lat.toDouble(),
       originLng: origin.lng.toDouble(),
@@ -73,6 +82,7 @@ class _CommutePageState extends State<CommutePage> {
     setState(() {
       _journeys = journeys;
       _selectedJourney = null;
+      _sheetView = _CommuteSheetView.journeyOverviews;
     });
 
     debugPrint('RAPTOR returned ${journeys.length} journey(s).');
@@ -139,6 +149,7 @@ class _CommutePageState extends State<CommutePage> {
       leg.distance = metadata.distanceMeters;
       leg.durationSeconds = metadata.durationSeconds;
       leg.traffic = metadata.traffic;
+      leg.steps = metadata.steps;
     }
   }
 
@@ -226,6 +237,8 @@ class _CommutePageState extends State<CommutePage> {
     final mapboxMap = _mapboxMap;
     if (mapboxMap == null) return;
 
+    await _clearJourneyPolylines();
+
     for (var index = 0; index < journey.legs.length; index++) {
       final leg = journey.legs[index];
       final coordinates = leg.coordinates;
@@ -238,6 +251,33 @@ class _CommutePageState extends State<CommutePage> {
         layerId: 'selected-journey-leg-layer-$index',
         dotted: leg.isWalking,
       );
+    }
+    _drawnJourneyPolylineCount = journey.legs.length;
+  }
+
+  Future<void> _clearJourneyPolylines() async {
+    final mapboxMap = _mapboxMap;
+    if (mapboxMap == null) return;
+
+    final style = mapboxMap.style;
+    for (var index = 0; index < _drawnJourneyPolylineCount; index++) {
+      final layerId = 'selected-journey-leg-layer-$index';
+      final sourceId = 'selected-journey-leg-source-$index';
+      if (await style.styleLayerExists(layerId)) {
+        await style.removeStyleLayer(layerId);
+      }
+      if (await style.styleSourceExists(sourceId)) {
+        await style.removeStyleSource(sourceId);
+      }
+    }
+    _drawnJourneyPolylineCount = 0;
+  }
+
+  Future<void> _clearJourneyMapOverlays() async {
+    await _clearJourneyPolylines();
+    final intermediateStopsManager = _intermediateStopsAnnotationManager;
+    if (intermediateStopsManager != null) {
+      await intermediateStopsManager.deleteAll();
     }
   }
 
@@ -281,6 +321,39 @@ class _CommutePageState extends State<CommutePage> {
     );
   }
 
+  Future<void> _focusLegOnMap(Leg leg) async {
+    final mapboxMap = _mapboxMap;
+    if (mapboxMap == null) return;
+    final coordinates = leg.coordinates ??
+        [
+          _positionForLegStop(leg.fromStopId),
+          _positionForLegStop(leg.toStopId),
+        ].whereType<Position>().toList();
+    if (coordinates.length < 2) return;
+
+    final camera = await mapboxMap.cameraForCoordinates(
+      coordinates.map((position) => Point(coordinates: position)).toList(),
+      MbxEdgeInsets(top: 120, left: 40, bottom: 300, right: 40),
+      null,
+      null,
+    );
+    await mapboxMap.flyTo(camera, MapAnimationOptions(duration: 500));
+  }
+
+  Future<void> _startCommute(Journey journey) async {
+    if (journey.legs.isEmpty) return;
+    setState(() {
+      _sheetView = _CommuteSheetView.activeLeg;
+      _activeLegIndex = 0;
+    });
+    await _focusLegOnMap(journey.legs.first);
+  }
+
+  Future<void> _showLegAtIndex(Journey journey, int index) async {
+    setState(() => _activeLegIndex = index);
+    await _focusLegOnMap(journey.legs[index]);
+  }
+
   Future<void> _showOriginDestinationMarkersAndFit() async {
     final mapboxMap = _mapboxMap;
     final origin = _originPosition;
@@ -311,7 +384,7 @@ class _CommutePageState extends State<CommutePage> {
 
     final cameraOptions = await mapboxMap.cameraForCoordinates(
       [Point(coordinates: origin), Point(coordinates: destination)],
-      MbxEdgeInsets(top: 200, left: 40, bottom: 280, right: 40),
+      MbxEdgeInsets(top: 180, left: 40, bottom: 280, right: 40),
       null,
       null,
     );
@@ -341,7 +414,10 @@ class _CommutePageState extends State<CommutePage> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () async {
-          setState(() => _selectedJourney = journey);
+          setState(() {
+            _selectedJourney = journey;
+            _sheetView = _CommuteSheetView.journeyDetails;
+          });
           await _drawSelectedJourneyPolylines(journey);
           await _drawIntermediateStops(journey);
         },
@@ -463,7 +539,10 @@ class _CommutePageState extends State<CommutePage> {
           children: [
             IconButton(
               icon: const Icon(Icons.arrow_back),
-              onPressed: () => setState(() => _selectedJourney = null),
+              onPressed: () => setState(() {
+                _selectedJourney = null;
+                _sheetView = _CommuteSheetView.journeyOverviews;
+              }),
             ),
             Expanded(
               child: _oneLineText(
@@ -474,6 +553,9 @@ class _CommutePageState extends State<CommutePage> {
           ],
         ),
         const SizedBox(height: 8),
+        const Divider(height: 10),
+        const SizedBox(height: 8),
+
         for (var index = 0; index < legs.length; index++)
           _buildExpandedLegRow(
             leg: legs[index],
@@ -488,6 +570,87 @@ class _CommutePageState extends State<CommutePage> {
                 ? _destinationController.text
                 : legs.last.toStopName,
           ),
+        const SizedBox(height: 20),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () => _startCommute(selectedJourney),
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('Start commute'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActiveLegView(Journey journey) {
+    final leg = journey.legs[_activeLegIndex];
+    final isFirst = _activeLegIndex == 0;
+    final isLast = _activeLegIndex == journey.legs.length - 1;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back),
+            tooltip: 'Journey details',
+            onPressed: () =>
+                setState(() => _sheetView = _CommuteSheetView.journeyDetails),
+          ),
+          Expanded(child: _oneLineText('Part ${_activeLegIndex + 1} / ${journey.legs.length}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+        ]),
+        const SizedBox(height: 12),
+        _oneLineText(leg.fromStopName, style: const TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Row(children: [
+          Icon(_vehicleTypeIcon(leg.vehicleType)),
+          const SizedBox(width: 8),
+          Expanded(child: _oneLineText(leg.isWalking ? 'Walk' : (leg.routeLongName ?? 'Transit'))),
+        ]),
+        const SizedBox(height: 12),
+        if (leg.isWalking) ...[
+          if (leg.steps?.isNotEmpty == true)
+            for (var index = 0; index < leg.steps!.length; index++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${index + 1}.', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 8),
+                  Expanded(child: _oneLineText(leg.steps![index].instruction)),
+                ]),
+              )
+          else
+            const Text('Walk to the next stop.'),
+        ] else ...[
+          _oneLineText('Board at: ${leg.fromStopName}'),
+          const SizedBox(height: 6),
+          _oneLineText('Get off at: ${leg.toStopName}'),
+        ],
+        const SizedBox(height: 12),
+        Row(children: [
+          const Icon(Icons.schedule, size: 18),
+          const SizedBox(width: 4),
+          _oneLineText(_formatDuration(leg.durationSeconds)),
+          const SizedBox(width: 16),
+          const Icon(Icons.straighten, size: 18),
+          const SizedBox(width: 4),
+          Expanded(child: _oneLineText(_formatDistance(leg.distance))),
+          const SizedBox(width: 8),
+          const Text('Fare: -'),
+        ]),
+        const SizedBox(height: 20),
+        Row(children: [
+          Expanded(child: OutlinedButton(
+            onPressed: isFirst ? null : () => _showLegAtIndex(journey, _activeLegIndex - 1),
+            child: const Text('Previous'),
+          )),
+          const SizedBox(width: 12),
+          Expanded(child: ElevatedButton(
+            onPressed: isLast ? null : () => _showLegAtIndex(journey, _activeLegIndex + 1),
+            child: const Text('Next'),
+          )),
+        ]),
       ],
     );
   }
@@ -607,29 +770,43 @@ class _CommutePageState extends State<CommutePage> {
             await _showOriginDestinationMarkersAndFit();
           },
         ),
-        Positioned(
-          top: 25,
-          left: 8,
-          right: 8,
-          child: LocationTextfield(
-            originController: _originController,
-            destinationController: _destinationController,
-            readOnly: true,
-            onOriginTap: () => _openInputPage(CommuteInputField.origin),
-            onDestinationTap: () =>
-                _openInputPage(CommuteInputField.destination),
+        // TODO: Make this invisible on enums journeyDetails, activeLeg
+        if (_sheetView == _CommuteSheetView.journeyOverviews)
+          Positioned(
+            top: 25,
+            left: 8,
+            right: 8,
+            child: LocationTextfield(
+              originController: _originController,
+              destinationController: _destinationController,
+              readOnly: true,
+              onOriginTap: () => _openInputPage(CommuteInputField.origin),
+              onDestinationTap: () =>
+                  _openInputPage(CommuteInputField.destination),
+            ),
           ),
-        ),
-        if (_journeys.isNotEmpty)
+        if (_journeys.isNotEmpty && !_isCommuting)
           DragScrollSheet(
             children: [
-              if (_selectedJourney == null) ...[
+              if (_sheetView == _CommuteSheetView.journeyOverviews) ...[
                 Text('${_journeys.length} journeys found'),
                 const SizedBox(height: 8),
                 for (var index = 0; index < _journeys.length; index++)
                   _buildJourneyCardOverview(_journeys[index]),
-              ] else
+              ],
+              if (_sheetView == _CommuteSheetView.journeyDetails)
                 _buildExpandedJourneyView(_selectedJourney!),
+            ],
+          )
+        else if (_journeys.isNotEmpty && _isCommuting)
+          DragScrollSheet(
+            key: const ValueKey('active-commute-sheet'),
+            initialChildSize: 0.22,
+            minChildSize: 0.1,
+            maxChildSize: 0.22,
+            snapSizes: const [0.1, 0.22],
+            children: [
+              _buildActiveLegView(_selectedJourney!),
             ],
           ),
       ],
