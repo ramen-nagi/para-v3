@@ -162,6 +162,7 @@ class MapMatchingService {
     );
   }
 
+  // exclusively for trains, computes distance based on shapes pts
   static double _straightLineDistanceMeters(Position first, Position second) {
     const metersPerLatitudeDegree = 110540.0;
     const metersPerLongitudeDegreeAtEquator = 111320.0;
@@ -185,6 +186,7 @@ class MapMatchingService {
     List<Position> positions, {
     String sourceId = 'map-matching-route-source',
     String layerId = 'map-matching-route-layer',
+    bool dotted = false,
   }) async {
     if (positions.length < 2) return;
 
@@ -215,10 +217,11 @@ class MapMatchingService {
       LineLayer(
         id: layerId,
         sourceId: sourceId,
-        lineColor: 0xFF81D4FA,
+        lineColor: 0xFF0081FB,
         lineWidth: 5.0,
         lineJoin: LineJoin.ROUND,
         lineCap: LineCap.ROUND,
+        lineDasharray: dotted ? [0.5, 1.5] : null,
       ),
     );
   }
