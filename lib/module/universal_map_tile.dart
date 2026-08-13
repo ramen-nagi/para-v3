@@ -25,10 +25,14 @@ class UniversalMapTile extends StatefulWidget {
 
 class _UniversalMapTileState extends State<UniversalMapTile> {
   static const _maxVisibleSheetExtent = 0.221;
+  static const _trafficSourceId = 'mapbox-traffic-source';
+  static const _trafficLayerId = 'mapbox-traffic-layer';
 
   final _locationPermissionService = const LocationPermissionService();
   LocationPermissionState? _locationPermissionState;
   MapboxMap? _mapboxMap;
+  bool _isTrafficVisible = false;
+  ViewportState? _viewport;
 
   Future<void> _enableLiveLocation(MapboxMap mapboxMap) async {
     final permissionState = await _locationPermissionService
@@ -67,6 +71,74 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
     );
   }
 
+  Future<void> _toggleTrafficLayer() async {
+    final mapboxMap = _mapboxMap;
+    if (mapboxMap == null) return;
+
+    final style = mapboxMap.style;
+    if (_isTrafficVisible) {
+      if (await style.styleLayerExists(_trafficLayerId)) {
+        await style.removeStyleLayer(_trafficLayerId);
+      }
+      if (await style.styleSourceExists(_trafficSourceId)) {
+        await style.removeStyleSource(_trafficSourceId);
+      }
+    } else {
+      await style.addSource(
+        VectorSource(
+          id: _trafficSourceId,
+          url: 'mapbox://mapbox.mapbox-traffic-v1',
+        ),
+      );
+      await style.addLayer(
+        LineLayer(
+          id: _trafficLayerId,
+          sourceId: _trafficSourceId,
+          sourceLayer: 'traffic',
+          slot: 'middle',
+          lineWidth: 3,
+          lineColorExpression: [
+            'match',
+            ['get', 'congestion'],
+            'low', '#4CAF50',
+            'moderate', '#FF9800',
+            'heavy', '#F44336',
+            'severe', '#F44336',
+            '#4CAF50',
+          ],
+        ),
+      );
+    }
+    if (!mounted) return;
+    setState(() => _isTrafficVisible = !_isTrafficVisible);
+  }
+
+  Future<void> _panCameraToUserLocation() async {
+    final mapboxMap = _mapboxMap;
+    if (mapboxMap == null) return;
+
+    final permissionState = _locationPermissionState ??
+        await _locationPermissionService.checkPermission();
+    if (!mounted) return;
+    if (permissionState != LocationPermissionState.granted) {
+      setState(() => _locationPermissionState = permissionState);
+      return;
+    }
+
+    await mapboxMap.location.updateSettings(
+      LocationComponentSettings(enabled: true),
+    );
+    if (!mounted) return;
+    setState(() {
+      _locationPermissionState = LocationPermissionState.granted;
+      _viewport = FollowPuckViewportState(
+        zoom: 16,
+        pitch: 0,
+        bearing: const FollowPuckViewportStateBearingConstant(0),
+      );
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -96,6 +168,7 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
       children: [
         MapWidget(
           key: const ValueKey("UniversalMapWidget"),
+          viewport: _viewport,
           cameraOptions: CameraOptions(
             center: defaultPoint,
             zoom: widget.initialZoom,
@@ -119,8 +192,8 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
             }
           },
         ),
-        if (_locationPermissionState ==
-            LocationPermissionState.permanentlyDenied)
+        if (_locationPermissionState != null &&
+            _locationPermissionState != LocationPermissionState.granted)
           Positioned(
             left: 16,
             right: 16,
@@ -143,9 +216,16 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildCircularMapButton(Icons.traffic_rounded),
+                  _buildCircularMapButton(
+                    Icons.traffic_rounded,
+                    _toggleTrafficLayer,
+                    isActive: _isTrafficVisible,
+                  ),
                   const SizedBox(height: 8),
-                  _buildCircularMapButton(Icons.my_location_rounded),
+                  _buildCircularMapButton(
+                    Icons.my_location_rounded,
+                    _panCameraToUserLocation,
+                  ),
                 ],
               ),
             );
@@ -155,13 +235,19 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
     );
   }
 
-  Widget _buildCircularMapButton(IconData icon) {
+  Widget _buildCircularMapButton(
+    IconData icon,
+    VoidCallback onPressed, {
+    bool isActive = false,
+  }) {
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: isActive
+          ? Theme.of(context).colorScheme.primaryContainer
+          : Theme.of(context).colorScheme.surface,
       shape: const CircleBorder(),
       elevation: 3,
       child: IconButton(
-        onPressed: () {},
+        onPressed: onPressed,
         icon: Icon(icon),
       ),
     );

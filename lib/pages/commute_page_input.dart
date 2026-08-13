@@ -120,10 +120,6 @@ class _CommutePageInputState extends State<CommutePageInput> {
         _originPosition = position;
       }
     });
-    debugPrint(
-      '${isDestination ? 'Destination' : 'Origin'} coordinates: '
-      'lat=${position.lat}, lng=${position.lng}',
-    );
 
     final origin = _originPosition;
     final destination = _destinationPosition;

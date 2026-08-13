@@ -770,7 +770,6 @@ class _CommutePageState extends State<CommutePage> {
             await _showOriginDestinationMarkersAndFit();
           },
         ),
-        // TODO: Make this invisible on enums journeyDetails, activeLeg
         if (_sheetView == _CommuteSheetView.journeyOverviews)
           Positioned(
             top: 25,
