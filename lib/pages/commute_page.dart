@@ -88,25 +88,11 @@ class _CommutePageState extends State<CommutePage> {
     debugPrint('RAPTOR returned ${journeys.length} journey(s).');
     for (var journeyIndex = 0; journeyIndex < journeys.length; journeyIndex++) {
       final journey = journeys[journeyIndex];
-      debugPrint('Journey ${journeyIndex + 1}:');
-      for (var legIndex = 0; legIndex < journey.legs.length; legIndex++) {
-        final leg = journey.legs[legIndex];
-        final mode = leg.isWalking ? 'Walk' : leg.vehicleType.name;
-        final route = leg.routeLongName == null
-            ? ''
-            : ' — ${leg.routeLongName}';
-        final distance = leg.distance == null
-            ? 'unknown distance'
-            : '${leg.distance!.toStringAsFixed(0)} m';
-        final duration = leg.durationSeconds == null
-            ? 'unknown duration'
-            : '${leg.durationSeconds!.toStringAsFixed(0)} s';
-        debugPrint(
-          '  ${legIndex + 1}. $mode$route\n'
-          '     ${leg.fromStopName} → ${leg.toStopName}\n'
-          '     $distance; $duration',
-        );
-      }
+      final congestion = journey.legs
+          .expand((leg) => leg.traffic ?? const <String?>[])
+          .toList();
+      debugPrint('Journey ${journeyIndex + 1}: $congestion');
+      continue;
     }
   }
 
@@ -128,10 +114,7 @@ class _CommutePageState extends State<CommutePage> {
         final start = _positionForLegStop(leg.fromStopId);
         final end = _positionForLegStop(leg.toStopId);
         if (start == null || end == null) continue;
-        metadata = await MapMatchingService.fetchMapMatching(
-          'walking',
-          [start, end],
-        );
+        metadata = await MapMatchingService.fetchWalkingDirections(start, end);
       } else {
         final trip = _findTripById(leg.tripId);
         if (trip == null) continue;
