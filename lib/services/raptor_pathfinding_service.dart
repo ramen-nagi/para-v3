@@ -27,7 +27,7 @@ class Leg {
   List<Position>? coordinates;
   double? distance;
   double? durationSeconds;
-  final double? fare;
+  double? fare;
   List<String?>? traffic;
   List<NavigationStep>? steps;
 

@@ -9,6 +9,7 @@ import 'package:para_v3/pages/commute_page_input.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'package:para_v3/services/map_matching_service.dart';
 import 'package:para_v3/services/raptor_pathfinding_service.dart';
+import 'package:para_v3/services/fare_calculator_service.dart';
 
 class CommutePage extends StatefulWidget {
   const CommutePage({super.key});
@@ -105,7 +106,10 @@ class _CommutePageState extends State<CommutePage> {
         final shapeCoordinates = trip == null
             ? const <Position>[]
             : _getTrainLegShapeCoordinates(trip, leg);
-        if (shapeCoordinates.length < 2) continue;
+        if (shapeCoordinates.length < 2) {
+          leg.fare = await FareCalculatorService.instance.calculateLegFare(leg);
+          continue;
+        }
         metadata = await MapMatchingService.fetchRouteMetadataResultTrain(
           leg.vehicleType,
           shapeCoordinates,
@@ -133,6 +137,13 @@ class _CommutePageState extends State<CommutePage> {
       leg.durationSeconds = metadata.durationSeconds;
       leg.traffic = metadata.traffic;
       leg.steps = metadata.steps;
+
+      if (leg.vehicleType == VehicleType.train ||
+          leg.vehicleType == VehicleType.jeep ||
+          leg.vehicleType == VehicleType.bus ||
+          leg.vehicleType == VehicleType.uvExpress) {
+        leg.fare = await FareCalculatorService.instance.calculateLegFare(leg);
+      }
     }
   }
 
@@ -386,6 +397,10 @@ class _CommutePageState extends State<CommutePage> {
         .where((leg) => leg.isWalking)
         .fold<double>(0, (total, leg) => total + (leg.distance ?? 0));
 
+    final totalFare = journey.legs.fold<double>(
+      0,
+      (total, leg) => total + (leg.fare ?? 0),
+    );
     final hasDuration = journey.legs.any((leg) => leg.durationSeconds != null);
     final totalDuration = journey.legs.fold<double>(
       0,
@@ -422,14 +437,14 @@ class _CommutePageState extends State<CommutePage> {
                       _formatDistance(walkingDistance),
                     ),
                   ),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text('Fare'),
                         SizedBox(height: 2),
                         Text(
-                          '—',
+                          _formatFare(totalFare),
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ],
@@ -489,7 +504,7 @@ class _CommutePageState extends State<CommutePage> {
   }
 
   String _formatDistance(double? distanceMeters) {
-    if (distanceMeters == null) return 'Distance unavailable';
+    if (distanceMeters == null) return '--';
     if (distanceMeters >= 1000) {
       return '${(distanceMeters / 1000).toStringAsFixed(1)} km';
     }
@@ -497,11 +512,16 @@ class _CommutePageState extends State<CommutePage> {
   }
 
   String _formatDuration(double? durationSeconds) {
-    if (durationSeconds == null) return 'Duration unavailable';
+    if (durationSeconds == null) return '--';
     if (durationSeconds >= 60) {
       return '${(durationSeconds / 60).round()} min';
     }
     return '${durationSeconds.toStringAsFixed(0)} sec';
+  }
+
+  String _formatFare(double? fare) {
+    if (fare == null) return '--';
+    return '₱${fare.toStringAsFixed(2)}';
   }
 
   Widget _oneLineText(String text, {TextStyle? style}) {
@@ -620,7 +640,7 @@ class _CommutePageState extends State<CommutePage> {
           const SizedBox(width: 4),
           Expanded(child: _oneLineText(_formatDistance(leg.distance))),
           const SizedBox(width: 8),
-          const Text('Fare: -'),
+          Text('Fare: ${_formatFare(leg.fare)}'),
         ]),
         const SizedBox(height: 20),
         Row(children: [
@@ -676,11 +696,10 @@ class _CommutePageState extends State<CommutePage> {
                   const SizedBox(width: 4),
                   Flexible(child: _oneLineText(_formatDistance(leg.distance))),
                   const SizedBox(width: 12),
-                  Flexible(child: _oneLineText('Fare: -')),
+                  Flexible(child: _oneLineText('Fare: ${_formatFare(leg.fare)}')),
                 ],
               ),
               const SizedBox(height: 4),
-              const Divider(height: 10),
             ],
           ),
         ),
