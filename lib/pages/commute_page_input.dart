@@ -7,8 +7,8 @@ import 'package:para_v3/services/recents_service.dart';
 enum CommuteInputField { origin, destination }
 
 class CommuteInputResult {
-  final Position originPosition;
-  final Position destinationPosition;
+  final Position? originPosition;
+  final Position? destinationPosition;
 
   const CommuteInputResult({
     required this.originPosition,
@@ -54,6 +54,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
     _originFocusNode.addListener(_onOriginFocusChanged);
     _destinationFocusNode.addListener(_onDestinationFocusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadRecentSuggestions();
       final focusNode = widget.initialField == CommuteInputField.origin
           ? _originFocusNode
           : _destinationFocusNode;
@@ -85,6 +86,29 @@ class _CommutePageInputState extends State<CommutePageInput> {
     setState(() {
       _suggestions = suggestions;
       _showingRecents = isShowingRecents;
+    });
+  }
+
+  Future<void> _loadRecentSuggestions() async {
+    final requestId = ++_suggestionRequestId;
+    _autocomplete.cancelPendingSuggestions();
+
+    final hasEmptyInput = widget.originController.text.trim().isEmpty ||
+        widget.destinationController.text.trim().isEmpty;
+    if (!hasEmptyInput) {
+      if (!mounted || requestId != _suggestionRequestId) return;
+      setState(() {
+        _suggestions = [];
+        _showingRecents = false;
+      });
+      return;
+    }
+
+    final suggestions = await RecentsService.instance.getRecentSuggestions();
+    if (!mounted || requestId != _suggestionRequestId) return;
+    setState(() {
+      _suggestions = suggestions;
+      _showingRecents = true;
     });
   }
 
@@ -123,19 +147,32 @@ class _CommutePageInputState extends State<CommutePageInput> {
 
     final origin = _originPosition;
     final destination = _destinationPosition;
-    if (origin != null && destination != null) {
-      Navigator.of(context).pop(
-        CommuteInputResult(
-          originPosition: origin,
-          destinationPosition: destination,
-        ),
-      );
+    if (origin == null || destination == null) {
+      await _loadRecentSuggestions();
+      return;
     }
+
+    Navigator.of(context).pop(
+      CommuteInputResult(
+        originPosition: origin,
+        destinationPosition: destination,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.of(context).pop(
+          CommuteInputResult(
+            originPosition: _originPosition,
+            destinationPosition: _destinationPosition,
+          ),
+        );
+        return false;
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text(
           'Commute',
@@ -185,6 +222,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

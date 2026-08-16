@@ -59,11 +59,18 @@ class _CommutePageState extends State<CommutePage> {
 
     await _clearJourneyMapOverlays();
     setState(() {
-      _originPosition = result.originPosition;
-      _destinationPosition = result.destinationPosition;
+      if (result.originPosition != null) {
+        _originPosition = result.originPosition;
+      }
+      if (result.destinationPosition != null) {
+        _destinationPosition = result.destinationPosition;
+      }
     });
+    final origin = _originPosition;
+    final destination = _destinationPosition;
+    if (origin == null || destination == null) return;
     await _showOriginDestinationMarkersAndFit();
-    await _runRaptor(result.originPosition, result.destinationPosition);
+    await _runRaptor(origin, destination);
   }
 
   Future<void> _runRaptor(Position origin, Position destination) async {
@@ -138,6 +145,7 @@ class _CommutePageState extends State<CommutePage> {
       leg.traffic = metadata.traffic;
       leg.steps = metadata.steps;
 
+      // assigns fare to the leg model fare field
       if (leg.vehicleType == VehicleType.train ||
           leg.vehicleType == VehicleType.jeep ||
           leg.vehicleType == VehicleType.bus ||
