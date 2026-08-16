@@ -48,6 +48,7 @@ class LocationTextfield extends StatelessWidget {
             Expanded(
               child: Column(
                 children: [
+                  const SizedBox(height: 8),
                   _buildTextField(
                     controller: originController,
                     focusNode: originFocusNode,
@@ -55,7 +56,7 @@ class LocationTextfield extends StatelessWidget {
                     onTap: onOriginTap,
                     onChanged: onOriginChanged,
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 8),
                   _buildTextField(
                     controller: destinationController,
                     focusNode: destinationFocusNode,
@@ -102,28 +103,52 @@ class LocationTextfield extends StatelessWidget {
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: controller,
       builder: (context, value, _) {
-        return TextField(
-          controller: controller,
-          focusNode: focusNode,
-          readOnly: readOnly,
-          onTap: onTap,
-          onChanged: onChanged,
-          decoration: InputDecoration(
-            hintText: hintText,
-            isDense: true,
-            border: InputBorder.none,
-            suffixIcon: value.text.isEmpty
-                ? null
-                : IconButton(
-                    tooltip: 'Clear $hintText',
-                    icon: const Icon(Icons.close),
-                    onPressed: () {
-                      controller.clear();
-                      onChanged?.call('');
-                      focusNode?.requestFocus();
-                    },
+        return ListenableBuilder(
+          listenable: focusNode ?? controller,
+          builder: (context, child) {
+            final isFocused = focusNode?.hasFocus ?? false;
+            return SizedBox(
+              height: 40,
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                readOnly: readOnly,
+                onTap: onTap,
+                onChanged: onChanged,
+                maxLines: 1,
+                minLines: 1,
+                textAlignVertical: TextAlignVertical.center,
+                decoration: InputDecoration(
+                  hintText: hintText,
+                  isDense: true,
+                  filled: true,
+                  fillColor: isFocused
+                      ? Theme.of(context).colorScheme.surfaceContainerHighest
+                      : Colors.transparent,
+                  constraints: const BoxConstraints.tightFor(height: 40),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                  border: InputBorder.none,
+                  suffixIconConstraints: const BoxConstraints(
+                    minWidth: 40,
+                    maxWidth: 40,
+                    minHeight: 40,
+                    maxHeight: 40,
                   ),
-          ),
+                  suffixIcon: value.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear $hintText',
+                          icon: const Icon(Icons.close),
+                          onPressed: () {
+                            controller.clear();
+                            onChanged?.call('');
+                            focusNode?.requestFocus();
+                          },
+                        ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
