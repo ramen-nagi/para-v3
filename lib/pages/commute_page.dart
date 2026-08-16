@@ -33,6 +33,7 @@ class _CommutePageState extends State<CommutePage> {
   _CommuteSheetView _sheetView = _CommuteSheetView.journeyOverviews;
   int _activeLegIndex = 0;
   int _drawnJourneyPolylineCount = 0;
+  bool _isBuildingJourneys = false;
 
   bool get _isCommuting => _sheetView == _CommuteSheetView.activeLeg;
 
@@ -59,12 +60,8 @@ class _CommutePageState extends State<CommutePage> {
 
     await _clearJourneyMapOverlays();
     setState(() {
-      if (result.originPosition != null) {
-        _originPosition = result.originPosition;
-      }
-      if (result.destinationPosition != null) {
-        _destinationPosition = result.destinationPosition;
-      }
+      _originPosition = result.originPosition;
+      _destinationPosition = result.destinationPosition;
     });
     final origin = _originPosition;
     final destination = _destinationPosition;
@@ -74,6 +71,14 @@ class _CommutePageState extends State<CommutePage> {
   }
 
   Future<void> _runRaptor(Position origin, Position destination) async {
+    if (mounted) {
+      setState(() {
+        _isBuildingJourneys = true;
+        _journeys = [];
+        _selectedJourney = null;
+        _sheetView = _CommuteSheetView.journeyOverviews;
+      });
+    }
     debugPrint('Running RAPTOR for updated origin and destination.');
     final journeys = RaptorPathfindingService.instance.findJourneys(
       originLat: origin.lat.toDouble(),
@@ -91,6 +96,7 @@ class _CommutePageState extends State<CommutePage> {
       _journeys = journeys;
       _selectedJourney = null;
       _sheetView = _CommuteSheetView.journeyOverviews;
+      _isBuildingJourneys = false;
     });
 
     debugPrint('RAPTOR returned ${journeys.length} journey(s).');
@@ -301,8 +307,9 @@ class _CommutePageState extends State<CommutePage> {
       }
     }
 
-    final manager = _intermediateStopsAnnotationManager ??=
-        await mapboxMap.annotations.createCircleAnnotationManager(
+    final manager = _intermediateStopsAnnotationManager ??= await mapboxMap
+        .annotations
+        .createCircleAnnotationManager(
           id: 'journey-intermediate-stops',
         );
     await manager.deleteAll();
@@ -326,7 +333,8 @@ class _CommutePageState extends State<CommutePage> {
   Future<void> _focusLegOnMap(Leg leg) async {
     final mapboxMap = _mapboxMap;
     if (mapboxMap == null) return;
-    final coordinates = leg.coordinates ??
+    final coordinates =
+        leg.coordinates ??
         [
           _positionForLegStop(leg.fromStopId),
           _positionForLegStop(leg.toStopId),
@@ -362,8 +370,8 @@ class _CommutePageState extends State<CommutePage> {
     final destination = _destinationPosition;
     if (mapboxMap == null || origin == null || destination == null) return;
 
-    final manager = _endpointAnnotationManager ??=
-        await mapboxMap.annotations.createCircleAnnotationManager(
+    final manager = _endpointAnnotationManager ??= await mapboxMap.annotations
+        .createCircleAnnotationManager(
           id: 'commute-endpoints',
         );
     await manager.deleteAll();
@@ -602,34 +610,61 @@ class _CommutePageState extends State<CommutePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back),
-            tooltip: 'Journey details',
-            onPressed: () =>
-                setState(() => _sheetView = _CommuteSheetView.journeyDetails),
-          ),
-          Expanded(child: _oneLineText('Part ${_activeLegIndex + 1} / ${journey.legs.length}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-        ]),
+        Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.arrow_back),
+              tooltip: 'Journey details',
+              onPressed: () =>
+                  setState(() => _sheetView = _CommuteSheetView.journeyDetails),
+            ),
+            Expanded(
+              child: _oneLineText(
+                'Part ${_activeLegIndex + 1} / ${journey.legs.length}',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 12),
-        _oneLineText(leg.fromStopName, style: const TextStyle(fontWeight: FontWeight.w600)),
+        _oneLineText(
+          leg.fromStopName,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 8),
-        Row(children: [
-          Icon(_vehicleTypeIcon(leg.vehicleType)),
-          const SizedBox(width: 8),
-          Expanded(child: _oneLineText(leg.isWalking ? 'Walk' : (leg.routeLongName ?? 'Transit'))),
-        ]),
+        Row(
+          children: [
+            Icon(_vehicleTypeIcon(leg.vehicleType)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _oneLineText(
+                leg.isWalking ? 'Walk' : (leg.routeLongName ?? 'Transit'),
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 12),
         if (leg.isWalking) ...[
           if (leg.steps?.isNotEmpty == true)
             for (var index = 0; index < leg.steps!.length; index++)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('${index + 1}.', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(width: 8),
-                  Expanded(child: _oneLineText(leg.steps![index].instruction)),
-                ]),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${index + 1}.',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _oneLineText(leg.steps![index].instruction),
+                    ),
+                  ],
+                ),
               )
           else
             const Text('Walk to the next stop.'),
@@ -639,29 +674,41 @@ class _CommutePageState extends State<CommutePage> {
           _oneLineText('Get off at: ${leg.toStopName}'),
         ],
         const SizedBox(height: 12),
-        Row(children: [
-          const Icon(Icons.schedule, size: 18),
-          const SizedBox(width: 4),
-          _oneLineText(_formatDuration(leg.durationSeconds)),
-          const SizedBox(width: 16),
-          const Icon(Icons.straighten, size: 18),
-          const SizedBox(width: 4),
-          Expanded(child: _oneLineText(_formatDistance(leg.distance))),
-          const SizedBox(width: 8),
-          Text('Fare: ${_formatFare(leg.fare)}'),
-        ]),
+        Row(
+          children: [
+            const Icon(Icons.schedule, size: 18),
+            const SizedBox(width: 4),
+            _oneLineText(_formatDuration(leg.durationSeconds)),
+            const SizedBox(width: 16),
+            const Icon(Icons.straighten, size: 18),
+            const SizedBox(width: 4),
+            Expanded(child: _oneLineText(_formatDistance(leg.distance))),
+            const SizedBox(width: 8),
+            Text('Fare: ${_formatFare(leg.fare)}'),
+          ],
+        ),
         const SizedBox(height: 20),
-        Row(children: [
-          Expanded(child: OutlinedButton(
-            onPressed: isFirst ? null : () => _showLegAtIndex(journey, _activeLegIndex - 1),
-            child: const Text('Previous'),
-          )),
-          const SizedBox(width: 12),
-          Expanded(child: ElevatedButton(
-            onPressed: isLast ? null : () => _showLegAtIndex(journey, _activeLegIndex + 1),
-            child: const Text('Next'),
-          )),
-        ]),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: isFirst
+                    ? null
+                    : () => _showLegAtIndex(journey, _activeLegIndex - 1),
+                child: const Text('Previous'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: isLast
+                    ? null
+                    : () => _showLegAtIndex(journey, _activeLegIndex + 1),
+                child: const Text('Next'),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -698,13 +745,17 @@ class _CommutePageState extends State<CommutePage> {
                 children: [
                   const Icon(Icons.schedule, size: 16),
                   const SizedBox(width: 4),
-                  Flexible(child: _oneLineText(_formatDuration(leg.durationSeconds))),
+                  Flexible(
+                    child: _oneLineText(_formatDuration(leg.durationSeconds)),
+                  ),
                   const SizedBox(width: 12),
                   const Icon(Icons.straighten, size: 16),
                   const SizedBox(width: 4),
                   Flexible(child: _oneLineText(_formatDistance(leg.distance))),
                   const SizedBox(width: 12),
-                  Flexible(child: _oneLineText('Fare: ${_formatFare(leg.fare)}')),
+                  Flexible(
+                    child: _oneLineText('Fare: ${_formatFare(leg.fare)}'),
+                  ),
                 ],
               ),
               const SizedBox(height: 4),
@@ -780,6 +831,7 @@ class _CommutePageState extends State<CommutePage> {
             await _showOriginDestinationMarkersAndFit();
           },
         ),
+
         if (_sheetView == _CommuteSheetView.journeyOverviews)
           Positioned(
             top: 25,
@@ -794,7 +846,7 @@ class _CommutePageState extends State<CommutePage> {
                   _openInputPage(CommuteInputField.destination),
             ),
           ),
-        if (_journeys.isNotEmpty && !_isCommuting)
+        if (_journeys.isNotEmpty && !_isCommuting && !_isBuildingJourneys)
           DragScrollSheet(
             children: [
               if (_sheetView == _CommuteSheetView.journeyOverviews) ...[
@@ -807,7 +859,7 @@ class _CommutePageState extends State<CommutePage> {
                 _buildExpandedJourneyView(_selectedJourney!),
             ],
           )
-        else if (_journeys.isNotEmpty && _isCommuting)
+        else if (_journeys.isNotEmpty && _isCommuting && !_isBuildingJourneys)
           DragScrollSheet(
             key: const ValueKey('active-commute-sheet'),
             initialChildSize: 0.22,
@@ -817,6 +869,11 @@ class _CommutePageState extends State<CommutePage> {
             children: [
               _buildActiveLegView(_selectedJourney!),
             ],
+          ),
+
+        if (_isBuildingJourneys)
+          Center(
+            child: CircularProgressIndicator(),
           ),
       ],
     );

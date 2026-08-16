@@ -73,6 +73,14 @@ class _CommutePageInputState extends State<CommutePageInput> {
   }
 
   Future<void> _onQueryChanged(String query) async {
+    if (query.trim().isEmpty) {
+      if (_originFocusNode.hasFocus) {
+        _originPosition = null;
+      } else if (_destinationFocusNode.hasFocus) {
+        _destinationPosition = null;
+      }
+    }
+
     final requestId = ++_suggestionRequestId;
     final isShowingRecents = query.trim().isEmpty;
     final List<PlaceSuggestion> suggestions;
