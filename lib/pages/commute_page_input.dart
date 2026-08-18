@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/location_textfield.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
+import 'package:para_v3/services/profile_store.dart';
 import 'package:para_v3/services/recents_service.dart';
 
 enum CommuteInputField { origin, destination }
 
 class CommuteInputResult {
-  final Position? originPosition;
-  final Position? destinationPosition;
+  final Position originPosition;
+  final Position destinationPosition;
 
   const CommuteInputResult({
     required this.originPosition,
@@ -40,7 +41,9 @@ class _CommutePageInputState extends State<CommutePageInput> {
   final _originFocusNode = FocusNode();
   final _destinationFocusNode = FocusNode();
   final _autocomplete = AutocompleteGeocodingService();
+  final _store = ProfileStore();
   List<PlaceSuggestion> _suggestions = [];
+  List<SavedPlace> _quickPlaces = [];
   bool _showingRecents = false;
   int _suggestionRequestId = 0;
   Position? _originPosition;
@@ -53,8 +56,9 @@ class _CommutePageInputState extends State<CommutePageInput> {
     _destinationPosition = widget.destinationPosition;
     _originFocusNode.addListener(_onOriginFocusChanged);
     _destinationFocusNode.addListener(_onDestinationFocusChanged);
+    _store.addListener(_refreshQuickPlaces);
+    _store.load().then((_) => _refreshQuickPlaces()).catchError((_) {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadRecentSuggestions();
       final focusNode = widget.initialField == CommuteInputField.origin
           ? _originFocusNode
           : _destinationFocusNode;
@@ -65,6 +69,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
   @override
   void dispose() {
     _autocomplete.dispose();
+    _store.removeListener(_refreshQuickPlaces);
     _originFocusNode.removeListener(_onOriginFocusChanged);
     _destinationFocusNode.removeListener(_onDestinationFocusChanged);
     _originFocusNode.dispose();
@@ -72,15 +77,14 @@ class _CommutePageInputState extends State<CommutePageInput> {
     super.dispose();
   }
 
-  Future<void> _onQueryChanged(String query) async {
-    if (query.trim().isEmpty) {
-      if (_originFocusNode.hasFocus) {
-        _originPosition = null;
-      } else if (_destinationFocusNode.hasFocus) {
-        _destinationPosition = null;
-      }
-    }
+  void _refreshQuickPlaces() {
+    if (!mounted) return;
+    setState(() {
+      _quickPlaces = _store.profile.savedPlaces.toList();
+    });
+  }
 
+  Future<void> _onQueryChanged(String query) async {
     final requestId = ++_suggestionRequestId;
     final isShowingRecents = query.trim().isEmpty;
     final List<PlaceSuggestion> suggestions;
@@ -97,29 +101,6 @@ class _CommutePageInputState extends State<CommutePageInput> {
     });
   }
 
-  Future<void> _loadRecentSuggestions() async {
-    final requestId = ++_suggestionRequestId;
-    _autocomplete.cancelPendingSuggestions();
-
-    final hasEmptyInput = widget.originController.text.trim().isEmpty ||
-        widget.destinationController.text.trim().isEmpty;
-    if (!hasEmptyInput) {
-      if (!mounted || requestId != _suggestionRequestId) return;
-      setState(() {
-        _suggestions = [];
-        _showingRecents = false;
-      });
-      return;
-    }
-
-    final suggestions = await RecentsService.instance.getRecentSuggestions();
-    if (!mounted || requestId != _suggestionRequestId) return;
-    setState(() {
-      _suggestions = suggestions;
-      _showingRecents = true;
-    });
-  }
-
   void _onOriginFocusChanged() {
     if (_originFocusNode.hasFocus) {
       _onQueryChanged(widget.originController.text);
@@ -130,6 +111,54 @@ class _CommutePageInputState extends State<CommutePageInput> {
     if (_destinationFocusNode.hasFocus) {
       _onQueryChanged(widget.destinationController.text);
     }
+  }
+
+  void _onOriginChanged(String query) {
+    _originPosition = null;
+    _onQueryChanged(query);
+  }
+
+  void _onDestinationChanged(String query) {
+    _destinationPosition = null;
+    _onQueryChanged(query);
+  }
+
+  void _selectSavedPlace(SavedPlace place) {
+    final isDestination = _destinationFocusNode.hasFocus;
+    final position = Position(place.longitude, place.latitude);
+    (isDestination ? widget.destinationController : widget.originController)
+            .text =
+        place.address;
+    setState(() {
+      _suggestions = [];
+      if (isDestination) {
+        _destinationPosition = position;
+      } else {
+        _originPosition = position;
+      }
+    });
+    _finishOrFocusMissing();
+  }
+
+  void _finishOrFocusMissing() {
+    final origin = _originPosition;
+    final destination = _destinationPosition;
+    if (origin != null && destination != null) {
+      Navigator.of(context).pop(
+        CommuteInputResult(
+          originPosition: origin,
+          destinationPosition: destination,
+        ),
+      );
+      return;
+    }
+    final focus = origin == null ? _originFocusNode : _destinationFocusNode;
+    focus.requestFocus();
+    _onQueryChanged(
+      origin == null
+          ? widget.originController.text
+          : widget.destinationController.text,
+    );
   }
 
   Future<void> _selectSuggestion(PlaceSuggestion suggestion) async {
@@ -152,41 +181,21 @@ class _CommutePageInputState extends State<CommutePageInput> {
         _originPosition = position;
       }
     });
-
-    final origin = _originPosition;
-    final destination = _destinationPosition;
-    if (origin == null || destination == null) {
-      await _loadRecentSuggestions();
-      return;
-    }
-
-    Navigator.of(context).pop(
-      CommuteInputResult(
-        originPosition: origin,
-        destinationPosition: destination,
-      ),
+    debugPrint(
+      '${isDestination ? 'Destination' : 'Origin'} coordinates: '
+      'lat=${position.lat}, lng=${position.lng}',
     );
+
+    _finishOrFocusMissing();
   }
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
-        Navigator.of(context).pop(
-          CommuteInputResult(
-            originPosition: _originPosition,
-            destinationPosition: _destinationPosition,
-          ),
-        );
-        return false;
-      },
-      child: Scaffold(
+    return Scaffold(
       appBar: AppBar(
         title: const Text(
           'Commute',
-          style: TextStyle(
-            color: Colors.white
-          ),
+          style: TextStyle(color: Colors.white),
         ),
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
@@ -198,22 +207,42 @@ class _CommutePageInputState extends State<CommutePageInput> {
             destinationController: widget.destinationController,
             originFocusNode: _originFocusNode,
             destinationFocusNode: _destinationFocusNode,
-            onOriginChanged: _onQueryChanged,
-            onDestinationChanged: _onQueryChanged,
+            onOriginChanged: _onOriginChanged,
+            onDestinationChanged: _onDestinationChanged,
           ),
 
           const Divider(height: 10),
-          
+
           Expanded(
             child: ListView.builder(
-              itemCount: _suggestions.length,
+              itemCount:
+                  (_showingRecents ? _quickPlaces.length : 0) +
+                  _suggestions.length,
               itemBuilder: (context, index) {
-                final suggestion = _suggestions[index];
+                final quickCount = _showingRecents ? _quickPlaces.length : 0;
+                if (index < quickCount) {
+                  final place = _quickPlaces[index];
+                  return ListTile(
+                    leading: Icon(
+                      switch (place.kind) {
+                        SavedPlaceKind.home => Icons.home_rounded,
+                        SavedPlaceKind.work => Icons.work_rounded,
+                        SavedPlaceKind.custom => Icons.place_rounded,
+                      },
+                    ),
+                    title: Text(place.label),
+                    subtitle: Text(
+                      place.address,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () => _selectSavedPlace(place),
+                  );
+                }
+                final suggestion = _suggestions[index - quickCount];
                 return ListTile(
                   leading: Icon(
-                    _showingRecents
-                        ? Icons.history
-                        : Icons.location_on_rounded,
+                    _showingRecents ? Icons.history : Icons.location_on_rounded,
                   ),
                   onTap: () => _selectSuggestion(suggestion),
                   title: Text(
@@ -230,7 +259,6 @@ class _CommutePageInputState extends State<CommutePageInput> {
             ),
           ),
         ],
-      ),
       ),
     );
   }

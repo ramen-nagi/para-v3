@@ -1,9 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
-        android:label="para_v3"
+        android:label="Para"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -26,6 +27,12 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="para" android:host="auth-callback" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

@@ -25,87 +25,6 @@ class RouteMetadataResult {
 }
 
 class MapMatchingService {
-  static Future<RouteMetadataResult?> fetchWalkingDirections(
-    Position start,
-    Position end,
-  ) async {
-    final accessToken = dotenv.env['MAPBOX_ACCESS_TOKEN'];
-    final uri = Uri.parse(
-      'https://api.mapbox.com/directions/v5/mapbox/walking/'
-      '${start.lng},${start.lat};${end.lng},${end.lat}'
-      '?steps=true'
-      '&geometries=geojson'
-      '&overview=full'
-      '&annotations=distance,duration'
-      '&access_token=$accessToken',
-    );
-
-    try {
-      final response = await http.get(uri);
-      if (response.statusCode != 200) {
-        debugPrint(
-          'Mapbox walking directions failed '
-          '(${response.statusCode}): ${response.body}',
-        );
-        return null;
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final routes = data['routes'] as List? ?? const [];
-      if (routes.isEmpty) {
-        debugPrint('Mapbox walking directions returned no routes: $data');
-        return null;
-      }
-
-      final route = routes.first as Map<String, dynamic>;
-      final geometry = route['geometry'] as Map<String, dynamic>?;
-      final geometryCoordinates = geometry?['coordinates'] as List? ?? const [];
-      final coordinates = geometryCoordinates
-          .map(
-            (coordinate) => Position(
-              (coordinate[0] as num).toDouble(),
-              (coordinate[1] as num).toDouble(),
-            ),
-          )
-          .toList();
-      final steps = <NavigationStep>[];
-      for (final leg in route['legs'] as List? ?? const []) {
-        for (final step in (leg as Map<String, dynamic>)['steps'] as List? ??
-            const []) {
-          final stepData = step as Map<String, dynamic>;
-          final maneuver = stepData['maneuver'] as Map<String, dynamic>?;
-          final instruction = maneuver?['instruction'] as String?;
-          if (instruction == null || instruction.isEmpty) continue;
-          steps.add(
-            NavigationStep(
-              instruction: instruction,
-              distanceMeters: (stepData['distance'] as num?)?.toDouble(),
-              durationSeconds: (stepData['duration'] as num?)?.toDouble(),
-            ),
-          );
-        }
-      }
-
-      final distanceMeters = (route['distance'] as num?)?.toDouble() ?? 0;
-      final durationSeconds = (route['duration'] as num?)?.toDouble() ?? 0;
-      debugPrint(
-        'Mapbox walking directions: '
-        'distance=${distanceMeters.toStringAsFixed(2)} m; '
-        'duration=${durationSeconds.toStringAsFixed(2)} s',
-      );
-      return RouteMetadataResult(
-        coordinates: coordinates,
-        distanceMeters: distanceMeters,
-        durationSeconds: durationSeconds,
-        traffic: null,
-        steps: steps.isEmpty ? null : steps,
-      );
-    } catch (error) {
-      debugPrint('Error requesting Mapbox walking directions: $error');
-      return null;
-    }
-  }
-
   static Future<RouteMetadataResult?> fetchMapMatching(
     String profile,
     List<Position> coordinates,
@@ -194,11 +113,11 @@ class MapMatchingService {
             final maneuver = stepData['maneuver'] as Map<String, dynamic>?;
             final instruction = maneuver?['instruction'] as String?;
             if (instruction == null || instruction.isEmpty) continue;
-            navigationSteps.add(NavigationStep(
-              instruction: instruction,
-              distanceMeters: (stepData['distance'] as num?)?.toDouble(),
-              durationSeconds: (stepData['duration'] as num?)?.toDouble(),
-            ));
+            navigationSteps.add(
+              NavigationStep(
+                instruction: instruction,
+              ),
+            );
           }
 
           debugPrint(

@@ -34,7 +34,6 @@ class PlaceSuggestion {
 class AutocompleteGeocodingService {
   static const _maxResults = 5;
   static final _metroManilaRegex = RegExp('Metro Manila', caseSensitive: false);
-  final apiKey = dotenv.env['MAPS_PLATFORM_KEY']!;
 
   Timer? _debounce;
   Completer<List<PlaceSuggestion>>? _pendingSuggestions;
@@ -64,6 +63,12 @@ class AutocompleteGeocodingService {
   Future<List<PlaceSuggestion>> fetchAutocompleteSuggestions(
     String query,
   ) async {
+    final apiKey = dotenv.env['MAPS_PLATFORM_KEY'];
+    if (apiKey == null || apiKey.isEmpty) {
+      debugPrint('MAPS_PLATFORM_KEY is missing from .env');
+      return [];
+    }
+
     _sessionToken ??= _generateSessionToken();
     try {
       final response = await http.post(
@@ -106,6 +111,12 @@ class AutocompleteGeocodingService {
   }
 
   Future<Position?> geocode(PlaceSuggestion suggestion) async {
+    final apiKey = dotenv.env['MAPS_PLATFORM_KEY'];
+    if (apiKey == null || apiKey.isEmpty) {
+      debugPrint('[Geocode] MAPS_PLATFORM_KEY is missing from .env');
+      return null;
+    }
+
     try {
       final response = await http.get(
         Uri.parse('https://places.googleapis.com/v1/places/${suggestion.placeId}'),

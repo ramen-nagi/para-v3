@@ -1,6 +1,6 @@
 {
-    "name": "para_v3",
-    "short_name": "para_v3",
+    "name": "Para",
+    "short_name": "Para",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

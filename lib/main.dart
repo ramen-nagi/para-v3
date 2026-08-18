@@ -1,12 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
+import 'package:para_v3/services/profile_sync_service.dart';
 import 'pages/commute_page.dart';
+import 'pages/auth_page.dart';
 import 'pages/routes_page.dart';
 import 'pages/profile_page.dart';
 
-void main() async{
+final paraNavigatorKey = GlobalKey<NavigatorState>();
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await dotenv.load(fileName: ".env");
@@ -17,6 +23,7 @@ void main() async{
   );
 
   GtfsNetworkService.instance.initializeAndSync();
+  unawaited(ProfileSyncService.instance.start());
 
   runApp(const ParaApp());
 }
@@ -27,8 +34,9 @@ class ParaApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: paraNavigatorKey,
       debugShowCheckedModeBanner: false,
-      title: 'Commute App',
+      title: 'Para',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
@@ -47,12 +55,53 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
   int _selectedIndex = 0;
+  StreamSubscription<AuthState>? _authSubscription;
+  bool _showingRecovery = false;
 
   final List<Widget> _pages = const [
     CommutePage(),
     RoutesPage(),
     ProfilePage(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen(
+      (data) {
+        if (data.event == AuthChangeEvent.passwordRecovery) {
+          _openPasswordRecovery();
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        debugPrint('Authentication state error: $error');
+      },
+    );
+  }
+
+  void _openPasswordRecovery() {
+    if (_showingRecovery) return;
+    _showingRecovery = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final navigator = paraNavigatorKey.currentState;
+      if (navigator == null) {
+        _showingRecovery = false;
+        return;
+      }
+      await navigator.push(
+        MaterialPageRoute(
+          builder: (context) => const UpdatePasswordPage(isRecovery: true),
+        ),
+      );
+      _showingRecovery = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
 
   void _onItemTapped(int index) {
     setState(() {

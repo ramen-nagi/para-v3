@@ -1,30 +1,43 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:para_v3/main.dart';
+import 'package:para_v3/pages/auth_page.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const ParaApp());
+  testWidgets('auth page switches between sign in and account creation', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: AuthPage()));
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(find.text('Forgot password?'), findsOneWidget);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.text('New to Para? Create an account'));
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('Join Para'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'Name'), findsOneWidget);
+    expect(find.text('Already have an account? Sign in'), findsOneWidget);
+  });
+
+  testWidgets('password update page validates matching passwords', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: UpdatePasswordPage(isRecovery: true)),
+    );
+
+    expect(find.text('Reset password'), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'New password'),
+      'strong-password',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Confirm password'),
+      'different-password',
+    );
+    await tester.tap(find.text('Update password'));
+    await tester.pump();
+
+    expect(find.text('Passwords do not match.'), findsOneWidget);
   });
 }

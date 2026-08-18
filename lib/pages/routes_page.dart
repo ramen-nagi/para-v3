@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
+import 'package:para_v3/services/profile_store.dart';
 import 'routes_page_map.dart';
 
 class RoutesPage extends StatefulWidget {
@@ -10,6 +11,7 @@ class RoutesPage extends StatefulWidget {
 }
 
 class _RoutesPageState extends State<RoutesPage> {
+  final _store = ProfileStore();
   final SearchController _searchController = SearchController();
   final ScrollController _scrollController = ScrollController();
 
@@ -22,12 +24,15 @@ class _RoutesPageState extends State<RoutesPage> {
   void initState() {
     super.initState();
     GtfsNetworkService.instance.addListener(_onServiceUpdate);
+    _store.addListener(_onServiceUpdate);
+    _store.load().then((_) => _onServiceUpdate()).catchError((_) {});
     _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
     GtfsNetworkService.instance.removeListener(_onServiceUpdate);
+    _store.removeListener(_onServiceUpdate);
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _searchController.dispose();
@@ -35,7 +40,52 @@ class _RoutesPageState extends State<RoutesPage> {
   }
 
   void _onServiceUpdate() {
-    setState(() {});
+    if (mounted) setState(() {});
+  }
+
+  TransportMode? _modeFor(VehicleType type) => switch (type) {
+    VehicleType.train => TransportMode.train,
+    VehicleType.bus => TransportMode.bus,
+    VehicleType.jeep => TransportMode.jeep,
+    VehicleType.uvExpress => TransportMode.uvExpress,
+    VehicleType.tricycle => TransportMode.tricycle,
+    VehicleType.walk || VehicleType.unknown => null,
+  };
+
+  bool _isFavorite(String routeId) => _store.profile.favoriteRoutes.any(
+    (favorite) => favorite.routeId == routeId,
+  );
+
+  Future<void> _toggleFavorite(RoutesModel route) async {
+    final mode = _modeFor(route.vehicleType);
+    if (mode == null) return;
+    try {
+      await _store.update((profile) {
+        final favorites = List<FavoriteRoute>.of(profile.favoriteRoutes);
+        final index = favorites.indexWhere(
+          (favorite) => favorite.routeId == route.routeId,
+        );
+        if (index < 0) {
+          favorites.add(
+            FavoriteRoute(
+              routeId: route.routeId,
+              displayName: route.routeLongName,
+              vehicleType: mode,
+            ),
+          );
+        } else {
+          favorites.removeAt(index);
+        }
+        return profile.copyWith(favoriteRoutes: favorites);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('Could not update this favorite.')),
+        );
+    }
   }
 
   void _onScroll() {
@@ -91,6 +141,7 @@ class _RoutesPageState extends State<RoutesPage> {
   }
 
   Widget _buildRouteTile(RoutesModel route) {
+    final favorite = _isFavorite(route.routeId);
     return Card(
       margin: const EdgeInsets.only(bottom: 8.0),
       child: ListTile(
@@ -98,6 +149,13 @@ class _RoutesPageState extends State<RoutesPage> {
         title: Text(route.routeLongName),
         subtitle: Text(
           '${route.trips.length} direction trips',
+        ),
+        trailing: IconButton(
+          tooltip: favorite ? 'Remove favorite' : 'Add favorite',
+          onPressed: () => _toggleFavorite(route),
+          icon: Icon(
+            favorite ? Icons.star_rounded : Icons.star_border_rounded,
+          ),
         ),
         onTap: () {
           if (_searchController.isOpen) {

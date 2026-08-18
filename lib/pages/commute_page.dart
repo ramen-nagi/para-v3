@@ -1,18 +1,48 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/drag_scroll_sheet.dart';
 import 'package:para_v3/module/location_textfield.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
 import 'package:para_v3/pages/commute_page_input.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
+import 'package:para_v3/services/commute_history_service.dart';
 import 'package:para_v3/services/map_matching_service.dart';
+import 'package:para_v3/services/profile_store.dart';
 import 'package:para_v3/services/raptor_pathfinding_service.dart';
-import 'package:para_v3/services/fare_calculator_service.dart';
+import 'package:share_plus/share_plus.dart';
+
+class CommuteEndpoint {
+  final String label;
+  final double latitude;
+  final double longitude;
+
+  const CommuteEndpoint({
+    required this.label,
+    required this.latitude,
+    required this.longitude,
+  });
+
+  factory CommuteEndpoint.fromSavedPlace(SavedPlace place) => CommuteEndpoint(
+    label: place.address,
+    latitude: place.latitude,
+    longitude: place.longitude,
+  );
+
+  Position get position => Position(longitude, latitude);
+}
 
 class CommutePage extends StatefulWidget {
-  const CommutePage({super.key});
+  final CommuteEndpoint? initialOrigin;
+  final CommuteEndpoint? initialDestination;
+
+  const CommutePage({
+    super.key,
+    this.initialOrigin,
+    this.initialDestination,
+  });
 
   @override
   State<CommutePage> createState() => _CommutePageState();
@@ -21,6 +51,7 @@ class CommutePage extends StatefulWidget {
 enum _CommuteSheetView { journeyOverviews, journeyDetails, activeLeg }
 
 class _CommutePageState extends State<CommutePage> {
+  final _store = ProfileStore();
   final _originController = TextEditingController();
   final _destinationController = TextEditingController();
   Position? _originPosition;
@@ -33,12 +64,42 @@ class _CommutePageState extends State<CommutePage> {
   _CommuteSheetView _sheetView = _CommuteSheetView.journeyOverviews;
   int _activeLegIndex = 0;
   int _drawnJourneyPolylineCount = 0;
-  bool _isBuildingJourneys = false;
+  int _planningRequest = 0;
+  bool _hasSearched = false;
+  bool _isPlanning = false;
+  bool _datasetUnavailable = false;
 
   bool get _isCommuting => _sheetView == _CommuteSheetView.activeLeg;
 
   @override
+  void initState() {
+    super.initState();
+    final origin = widget.initialOrigin;
+    final destination = widget.initialDestination;
+    if (origin != null) {
+      _originController.text = origin.label;
+      _originPosition = origin.position;
+    }
+    if (destination != null) {
+      _destinationController.text = destination.label;
+      _destinationPosition = destination.position;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (origin != null && destination != null) {
+        _runRaptor(origin.position, destination.position);
+      } else if (origin != null || destination != null) {
+        _openInputPage(
+          origin == null
+              ? CommuteInputField.origin
+              : CommuteInputField.destination,
+        );
+      }
+    });
+  }
+
+  @override
   void dispose() {
+    _planningRequest++;
     _originController.dispose();
     _destinationController.dispose();
     super.dispose();
@@ -63,51 +124,163 @@ class _CommutePageState extends State<CommutePage> {
       _originPosition = result.originPosition;
       _destinationPosition = result.destinationPosition;
     });
-    final origin = _originPosition;
-    final destination = _destinationPosition;
-    if (origin == null || destination == null) return;
     await _showOriginDestinationMarkersAndFit();
-    await _runRaptor(origin, destination);
+    await _runRaptor(result.originPosition, result.destinationPosition);
+  }
+
+  Future<void> _shareCurrentLocation(BuildContext sourceContext) async {
+    final shareOrigin = sourceContext.findRenderObject() as RenderBox?;
+    final sharePositionOrigin = shareOrigin == null
+        ? null
+        : shareOrigin.localToGlobal(Offset.zero) & shareOrigin.size;
+    try {
+      if (!await geo.Geolocator.isLocationServiceEnabled()) {
+        _showLocationShareMessage('Turn on device location to share it.');
+        return;
+      }
+
+      var permission = await geo.Geolocator.checkPermission();
+      if (permission == geo.LocationPermission.denied) {
+        permission = await geo.Geolocator.requestPermission();
+      }
+      if (permission == geo.LocationPermission.denied ||
+          permission == geo.LocationPermission.deniedForever) {
+        _showLocationShareMessage('Location permission is needed to share it.');
+        return;
+      }
+
+      final position = await geo.Geolocator.getCurrentPosition(
+        locationSettings: const geo.LocationSettings(
+          accuracy: geo.LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+      if (!mounted) return;
+
+      final latitude = position.latitude.toStringAsFixed(6);
+      final longitude = position.longitude.toStringAsFixed(6);
+      await SharePlus.instance.share(
+        ShareParams(
+          subject: 'My location from Para',
+          text:
+              'Here is my current location: '
+              'https://www.google.com/maps/search/?api=1&query=$latitude,$longitude',
+          sharePositionOrigin: sharePositionOrigin,
+        ),
+      );
+    } catch (_) {
+      _showLocationShareMessage(
+        'Could not get your current location. Please try again.',
+      );
+    }
+  }
+
+  void _showLocationShareMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _runRaptor(Position origin, Position destination) async {
-    if (mounted) {
-      setState(() {
-        _isBuildingJourneys = true;
-        _journeys = [];
-        _selectedJourney = null;
-        _sheetView = _CommuteSheetView.journeyOverviews;
-      });
-    }
-    debugPrint('Running RAPTOR for updated origin and destination.');
-    final journeys = RaptorPathfindingService.instance.findJourneys(
-      originLat: origin.lat.toDouble(),
-      originLng: origin.lng.toDouble(),
-      destLat: destination.lat.toDouble(),
-      destLng: destination.lng.toDouble(),
-    );
-
-    for (final journey in journeys) {
-      await _enrichJourneyLegs(journey);
-    }
-    if (!mounted) return;
-
+    final request = ++_planningRequest;
     setState(() {
-      _journeys = journeys;
+      _isPlanning = true;
+      _hasSearched = false;
+      _journeys = [];
       _selectedJourney = null;
       _sheetView = _CommuteSheetView.journeyOverviews;
-      _isBuildingJourneys = false;
     });
+    var journeys = <Journey>[];
+    try {
+      final profile = await _store.load();
+      if (!mounted || request != _planningRequest) return;
+      final options = RaptorRoutingOptions.fromProfile(profile);
+      journeys = RaptorPathfindingService.instance.findJourneys(
+        originLat: origin.lat.toDouble(),
+        originLng: origin.lng.toDouble(),
+        destLat: destination.lat.toDouble(),
+        destLng: destination.lng.toDouble(),
+        options: options,
+      );
 
-    debugPrint('RAPTOR returned ${journeys.length} journey(s).');
-    for (var journeyIndex = 0; journeyIndex < journeys.length; journeyIndex++) {
-      final journey = journeys[journeyIndex];
-      final congestion = journey.legs
-          .expand((leg) => leg.traffic ?? const <String?>[])
-          .toList();
-      debugPrint('Journey ${journeyIndex + 1}: $congestion');
-      continue;
+      for (final journey in journeys) {
+        await _enrichJourneyLegs(journey);
+      }
+      journeys.removeWhere(
+        (journey) => journey.legs.any(
+          (leg) =>
+              leg.isWalking &&
+              (leg.distance ?? double.infinity) >
+                  options.maxWalkingDistance + 1,
+        ),
+      );
+      RaptorPathfindingService.instance.sortJourneys(
+        journeys,
+        options.priority,
+      );
+      if (journeys.length > 3) journeys.removeRange(3, journeys.length);
+      if (!mounted || request != _planningRequest) return;
+
+      setState(() {
+        _journeys = journeys;
+        _hasSearched = true;
+        _datasetUnavailable = !GtfsNetworkService.instance.isLoaded;
+      });
+    } catch (_) {
+      if (!mounted || request != _planningRequest) return;
+      setState(() {
+        _hasSearched = true;
+        _datasetUnavailable = false;
+      });
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Could not plan this journey. Please try again.'),
+          ),
+        );
+    } finally {
+      if (mounted && request == _planningRequest) {
+        setState(() => _isPlanning = false);
+      }
     }
+  }
+
+  Future<void> _finishCommute() async {
+    var saved = false;
+    try {
+      saved = await CommuteHistoryService.add(
+        CommuteHistoryEntry(
+          origin: _originController.text.trim(),
+          destination: _destinationController.text.trim(),
+          completedAt: DateTime.now(),
+        ),
+      );
+    } catch (_) {
+      saved = false;
+    }
+    if (!mounted) return;
+    if (!saved) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not save this commute.')),
+      );
+      return;
+    }
+    setState(() {
+      _journeys = [];
+      _selectedJourney = null;
+      _sheetView = _CommuteSheetView.journeyOverviews;
+      _activeLegIndex = 0;
+      _hasSearched = false;
+    });
+    await _clearJourneyMapOverlays();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(content: Text('Commute completed and saved.')),
+      );
   }
 
   Future<void> _enrichJourneyLegs(Journey journey) async {
@@ -119,10 +292,7 @@ class _CommutePageState extends State<CommutePage> {
         final shapeCoordinates = trip == null
             ? const <Position>[]
             : _getTrainLegShapeCoordinates(trip, leg);
-        if (shapeCoordinates.length < 2) {
-          leg.fare = await FareCalculatorService.instance.calculateLegFare(leg);
-          continue;
-        }
+        if (shapeCoordinates.length < 2) continue;
         metadata = await MapMatchingService.fetchRouteMetadataResultTrain(
           leg.vehicleType,
           shapeCoordinates,
@@ -131,7 +301,10 @@ class _CommutePageState extends State<CommutePage> {
         final start = _positionForLegStop(leg.fromStopId);
         final end = _positionForLegStop(leg.toStopId);
         if (start == null || end == null) continue;
-        metadata = await MapMatchingService.fetchWalkingDirections(start, end);
+        metadata = await MapMatchingService.fetchMapMatching(
+          'walking',
+          [start, end],
+        );
       } else {
         final trip = _findTripById(leg.tripId);
         if (trip == null) continue;
@@ -150,14 +323,6 @@ class _CommutePageState extends State<CommutePage> {
       leg.durationSeconds = metadata.durationSeconds;
       leg.traffic = metadata.traffic;
       leg.steps = metadata.steps;
-
-      // assigns fare to the leg model fare field
-      if (leg.vehicleType == VehicleType.train ||
-          leg.vehicleType == VehicleType.jeep ||
-          leg.vehicleType == VehicleType.bus ||
-          leg.vehicleType == VehicleType.uvExpress) {
-        leg.fare = await FareCalculatorService.instance.calculateLegFare(leg);
-      }
     }
   }
 
@@ -341,8 +506,9 @@ class _CommutePageState extends State<CommutePage> {
         ].whereType<Position>().toList();
     if (coordinates.length < 2) return;
 
-    final camera = await mapboxMap.cameraForCoordinates(
+    final camera = await mapboxMap.cameraForCoordinatesPadding(
       coordinates.map((position) => Point(coordinates: position)).toList(),
+      CameraOptions(),
       MbxEdgeInsets(top: 120, left: 40, bottom: 300, right: 40),
       null,
       null,
@@ -392,8 +558,9 @@ class _CommutePageState extends State<CommutePage> {
       ),
     ]);
 
-    final cameraOptions = await mapboxMap.cameraForCoordinates(
+    final cameraOptions = await mapboxMap.cameraForCoordinatesPadding(
       [Point(coordinates: origin), Point(coordinates: destination)],
+      CameraOptions(),
       MbxEdgeInsets(top: 180, left: 40, bottom: 280, right: 40),
       null,
       null,
@@ -413,10 +580,6 @@ class _CommutePageState extends State<CommutePage> {
         .where((leg) => leg.isWalking)
         .fold<double>(0, (total, leg) => total + (leg.distance ?? 0));
 
-    final totalFare = journey.legs.fold<double>(
-      0,
-      (total, leg) => total + (leg.fare ?? 0),
-    );
     final hasDuration = journey.legs.any((leg) => leg.durationSeconds != null);
     final totalDuration = journey.legs.fold<double>(
       0,
@@ -453,14 +616,14 @@ class _CommutePageState extends State<CommutePage> {
                       _formatDistance(walkingDistance),
                     ),
                   ),
-                  Expanded(
+                  const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text('Fare'),
                         SizedBox(height: 2),
                         Text(
-                          _formatFare(totalFare),
+                          '—',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ],
@@ -520,7 +683,7 @@ class _CommutePageState extends State<CommutePage> {
   }
 
   String _formatDistance(double? distanceMeters) {
-    if (distanceMeters == null) return '--';
+    if (distanceMeters == null) return 'Distance unavailable';
     if (distanceMeters >= 1000) {
       return '${(distanceMeters / 1000).toStringAsFixed(1)} km';
     }
@@ -528,16 +691,11 @@ class _CommutePageState extends State<CommutePage> {
   }
 
   String _formatDuration(double? durationSeconds) {
-    if (durationSeconds == null) return '--';
+    if (durationSeconds == null) return 'Duration unavailable';
     if (durationSeconds >= 60) {
       return '${(durationSeconds / 60).round()} min';
     }
     return '${durationSeconds.toStringAsFixed(0)} sec';
-  }
-
-  String _formatFare(double? fare) {
-    if (fare == null) return '--';
-    return '₱${fare.toStringAsFixed(2)}';
   }
 
   Widget _oneLineText(String text, {TextStyle? style}) {
@@ -684,7 +842,7 @@ class _CommutePageState extends State<CommutePage> {
             const SizedBox(width: 4),
             Expanded(child: _oneLineText(_formatDistance(leg.distance))),
             const SizedBox(width: 8),
-            Text('Fare: ${_formatFare(leg.fare)}'),
+            const Text('Fare: -'),
           ],
         ),
         const SizedBox(height: 20),
@@ -702,9 +860,9 @@ class _CommutePageState extends State<CommutePage> {
             Expanded(
               child: ElevatedButton(
                 onPressed: isLast
-                    ? null
+                    ? _finishCommute
                     : () => _showLegAtIndex(journey, _activeLegIndex + 1),
-                child: const Text('Next'),
+                child: Text(isLast ? 'Finish' : 'Next'),
               ),
             ),
           ],
@@ -753,12 +911,11 @@ class _CommutePageState extends State<CommutePage> {
                   const SizedBox(width: 4),
                   Flexible(child: _oneLineText(_formatDistance(leg.distance))),
                   const SizedBox(width: 12),
-                  Flexible(
-                    child: _oneLineText('Fare: ${_formatFare(leg.fare)}'),
-                  ),
+                  Flexible(child: _oneLineText('Fare: -')),
                 ],
               ),
               const SizedBox(height: 4),
+              const Divider(height: 10),
             ],
           ),
         ),
@@ -824,6 +981,7 @@ class _CommutePageState extends State<CommutePage> {
     return Stack(
       children: [
         UniversalMapTile(
+          onShareLocation: _shareCurrentLocation,
           onMapCreated: (mapboxMap) async {
             _mapboxMap = mapboxMap;
             _endpointAnnotationManager = null;
@@ -831,7 +989,7 @@ class _CommutePageState extends State<CommutePage> {
             await _showOriginDestinationMarkersAndFit();
           },
         ),
-
+        // TODO: Make this invisible on enums journeyDetails, activeLeg
         if (_sheetView == _CommuteSheetView.journeyOverviews)
           Positioned(
             top: 25,
@@ -846,7 +1004,30 @@ class _CommutePageState extends State<CommutePage> {
                   _openInputPage(CommuteInputField.destination),
             ),
           ),
-        if (_journeys.isNotEmpty && !_isCommuting && !_isBuildingJourneys)
+        if (_isPlanning)
+          const Positioned(
+            top: 132,
+            left: 24,
+            right: 24,
+            child: LinearProgressIndicator(),
+          )
+        else if (_hasSearched && _journeys.isEmpty)
+          Positioned(
+            top: 132,
+            left: 16,
+            right: 16,
+            child: Card(
+              child: ListTile(
+                leading: const Icon(Icons.route_outlined),
+                title: Text(
+                  _datasetUnavailable
+                      ? 'Route data is still loading. Please try again.'
+                      : 'No journey is available for this trip.',
+                ),
+              ),
+            ),
+          ),
+        if (_journeys.isNotEmpty && !_isCommuting)
           DragScrollSheet(
             children: [
               if (_sheetView == _CommuteSheetView.journeyOverviews) ...[
@@ -859,7 +1040,7 @@ class _CommutePageState extends State<CommutePage> {
                 _buildExpandedJourneyView(_selectedJourney!),
             ],
           )
-        else if (_journeys.isNotEmpty && _isCommuting && !_isBuildingJourneys)
+        else if (_journeys.isNotEmpty && _isCommuting)
           DragScrollSheet(
             key: const ValueKey('active-commute-sheet'),
             initialChildSize: 0.22,
@@ -869,11 +1050,6 @@ class _CommutePageState extends State<CommutePage> {
             children: [
               _buildActiveLegView(_selectedJourney!),
             ],
-          ),
-
-        if (_isBuildingJourneys)
-          Center(
-            child: CircularProgressIndicator(),
           ),
       ],
     );

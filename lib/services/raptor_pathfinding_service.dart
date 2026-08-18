@@ -1,18 +1,12 @@
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
+import 'package:para_v3/services/profile_store.dart';
 
 class NavigationStep {
   final String instruction;
-  final double? distanceMeters;
-  final double? durationSeconds;
 
-  const NavigationStep({
-    required this.instruction,
-    this.distanceMeters,
-    this.durationSeconds,
-  });
+  const NavigationStep({required this.instruction});
 }
 
 class Leg {
@@ -27,7 +21,6 @@ class Leg {
   List<Position>? coordinates;
   double? distance;
   double? durationSeconds;
-  double? fare;
   List<String?>? traffic;
   List<NavigationStep>? steps;
 
@@ -43,7 +36,6 @@ class Leg {
     this.coordinates,
     this.distance,
     this.durationSeconds,
-    this.fare,
     this.traffic,
     this.steps,
   });
@@ -53,13 +45,56 @@ class Leg {
 
 class Journey {
   final List<Leg> legs;
-  Journey(this.legs);
+  final double routingCost;
+  Journey(this.legs, {this.routingCost = 0});
 
-  double get cost => legs.fold(0.0, (sum, leg) => sum + (leg.distance ?? 0.0));
+  late final double walkingDistance = legs
+      .where((leg) => leg.isWalking)
+      .fold(0.0, (sum, leg) => sum + (leg.distance ?? 0));
+  int get boardings => legs.where((leg) => !leg.isWalking).length;
+  late final double estimatedDurationSeconds = legs.fold(
+    boardings * 120.0,
+    (sum, leg) => sum + (leg.distance ?? 0) / _speed(leg.vehicleType),
+  );
+  late final String signature = legs
+      .map(
+        (leg) =>
+            '${leg.vehicleType.name}:${leg.routeId}:${leg.fromStopId}:${leg.toStopId}',
+      )
+      .join('|');
+
+  static double _speed(VehicleType type) => switch (type) {
+    VehicleType.walk => 1.4,
+    VehicleType.train => 10,
+    VehicleType.bus || VehicleType.uvExpress => 7,
+    VehicleType.jeep => 6,
+    VehicleType.tricycle => 5,
+    VehicleType.unknown => 1,
+  };
+}
+
+class RaptorRoutingOptions {
+  final RoutePriority priority;
+  final int maxWalkingDistance;
+  final Set<TransportMode> enabledModes;
+
+  RaptorRoutingOptions({
+    required this.priority,
+    required this.maxWalkingDistance,
+    required Set<TransportMode> enabledModes,
+  }) : enabledModes = Set.unmodifiable(enabledModes);
+
+  factory RaptorRoutingOptions.fromProfile(ProfileData profile) =>
+      RaptorRoutingOptions(
+        priority: profile.routePriority,
+        maxWalkingDistance: profile.maxWalkingDistance,
+        enabledModes: profile.enabledModes,
+      );
 }
 
 class RaptorRoute {
   final String routeId;
+  final String sourceRouteId;
   final String tripId;
   final String routeLongName;
   final VehicleType vehicleType;
@@ -68,6 +103,7 @@ class RaptorRoute {
 
   RaptorRoute({
     required this.routeId,
+    required this.sourceRouteId,
     required this.tripId,
     required this.routeLongName,
     required this.vehicleType,
@@ -84,24 +120,30 @@ class Transfer {
 
 class _ResultMeta {
   final String stopId;
+  final int round;
   final double totalCost;
   final double finalDist;
-  final Map<String, _Parent> parents;
 
   _ResultMeta({
     required this.stopId,
+    required this.round,
     required this.totalCost,
     required this.finalDist,
-    required this.parents,
   });
 }
 
 class _Parent {
   final String fromStopId;
+  final int fromRound;
   final String? routeId;
   final double? distance;
 
-  _Parent({required this.fromStopId, this.routeId, this.distance});
+  _Parent({
+    required this.fromStopId,
+    required this.fromRound,
+    this.routeId,
+    this.distance,
+  });
 }
 
 class RaptorPathfindingService {
@@ -111,15 +153,14 @@ class RaptorPathfindingService {
   static const int infinity = 1000000;
 
   // ── Algorithm tuning constants ───────────────────────────────────────────
-  static const double _maxWalkingRadius    = 5000.0; // meters, dest walk limit
-  static const double _transitCostWeight   = 0.05;   // cost per meter on transit
-  static const double _transferPenalty     = 500.0;  // discourages extra transfers
-  static const double _walkCircuityFactor  = 1.4;    // straight-line → city-block
-  static const double _trainCostDivisor    = 1.7;    // trains cheaper relative to cost
-  static const double _originSearchRadius  = 3000.0; // initial origin walk radius
-  static const int    _maxRounds           = 6;
-  static const int    _maxResults          = 3;
-  static const int    _maxCandidatesPerRoute = 5;
+  static const double _transitCostWeight = 0.05; // cost per meter on transit
+  static const double _transferPenalty = 500.0; // discourages extra transfers
+  static const double _walkCircuityFactor = 1.4; // straight-line → city-block
+  static const double _trainCostDivisor =
+      1.7; // trains cheaper relative to cost
+  static const int _maxRounds = 6;
+  static const int _maxResults = 6;
+  static const int _maxCandidatesPerRoute = 5;
   // ─────────────────────────────────────────────────────────────────────────
 
   // Haversine formula to compute distance in meters between two points
@@ -127,9 +168,12 @@ class RaptorPathfindingService {
     const double earthRadius = 6371000; // in meters
     final double dLat = _toRadians(lat2 - lat1);
     final double dLon = _toRadians(lon2 - lon1);
-    final double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(_toRadians(lat1)) * math.cos(_toRadians(lat2)) *
-            math.sin(dLon / 2) * math.sin(dLon / 2);
+    final double a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_toRadians(lat1)) *
+            math.cos(_toRadians(lat2)) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
     final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
     return earthRadius * c;
   }
@@ -143,10 +187,41 @@ class RaptorPathfindingService {
     required double originLng,
     required double destLat,
     required double destLng,
+    required RaptorRoutingOptions options,
   }) {
+    final walkingLimit = options.maxWalkingDistance.toDouble();
+    final directWalkDist =
+        computeDistance(originLat, originLng, destLat, destLng) *
+        _walkCircuityFactor;
+    double walkingCost(double distance) => switch (options.priority) {
+      RoutePriority.fastest => distance / 1.4,
+      RoutePriority.fewerTransfers => distance,
+      RoutePriority.lessWalking => distance * 4,
+    };
+    double transitCost(VehicleType type, double distance) =>
+        options.priority == RoutePriority.fastest
+        ? distance / Journey._speed(type)
+        : distance *
+              (type == VehicleType.train
+                  ? _transitCostWeight / _trainCostDivisor
+                  : _transitCostWeight);
+    final transferPenalty = switch (options.priority) {
+      RoutePriority.fastest => 120.0,
+      RoutePriority.fewerTransfers => _transferPenalty * 8,
+      RoutePriority.lessWalking => _transferPenalty,
+    };
+    Journey directJourney() => Journey([
+      Leg(
+        fromStopId: '__ORIGIN__',
+        toStopId: '__DESTINATION__',
+        distance: directWalkDist,
+        fromStopName: 'origin',
+        toStopName: 'destination',
+        vehicleType: VehicleType.walk,
+      ),
+    ], routingCost: walkingCost(directWalkDist));
     if (!GtfsNetworkService.instance.isLoaded) {
-      debugPrint('RAPTOR Error: GTFS dataset not loaded yet.');
-      return [];
+      return directWalkDist <= walkingLimit ? [directJourney()] : [];
     }
 
     // 1. Gather all unique stops and RaptorRoutes
@@ -156,10 +231,12 @@ class RaptorPathfindingService {
     final Set<String> seenSequences = {};
 
     for (final route in GtfsNetworkService.instance.routesMap.values) {
+      final mode = _transportMode(route.vehicleType);
+      if (mode == null || !options.enabledModes.contains(mode)) continue;
       for (final trip in route.trips) {
         final sortedStops = List<StopsAndStopTimesModel>.from(trip.stopTimes)
           ..sort((a, b) => a.stopSequence.compareTo(b.stopSequence));
-        
+
         if (sortedStops.isEmpty) continue;
 
         // Populate stops
@@ -168,17 +245,20 @@ class RaptorPathfindingService {
         }
 
         // Group into unique routes by stop sequence signature
-        final sequenceSignature = sortedStops.map((s) => s.stopId).join('->');
+        final sequenceSignature =
+            '${route.routeId}:${sortedStops.map((s) => s.stopId).join('->')}';
         if (!seenSequences.contains(sequenceSignature)) {
           seenSequences.add(sequenceSignature);
-          
+
           // Precompute cumulative distances along the route
           final List<double> cumulativeDistances = [0.0];
           double accum = 0.0;
           for (int idx = 0; idx < sortedStops.length - 1; idx++) {
             accum += computeDistance(
-              sortedStops[idx].stopLat, sortedStops[idx].stopLon,
-              sortedStops[idx + 1].stopLat, sortedStops[idx + 1].stopLon,
+              sortedStops[idx].stopLat,
+              sortedStops[idx].stopLon,
+              sortedStops[idx + 1].stopLat,
+              sortedStops[idx + 1].stopLon,
             );
             cumulativeDistances.add(accum);
           }
@@ -186,6 +266,7 @@ class RaptorPathfindingService {
           final raptorRouteId = '${route.routeId}_p${seenSequences.length}';
           final rr = RaptorRoute(
             routeId: raptorRouteId,
+            sourceRouteId: route.routeId,
             tripId: trip.tripId,
             routeLongName: route.routeLongName,
             vehicleType: route.vehicleType,
@@ -199,8 +280,7 @@ class RaptorPathfindingService {
     }
 
     if (allStops.isEmpty || allRoutes.isEmpty) {
-      debugPrint('RAPTOR Warning: No stops or routes found in dataset.');
-      return [];
+      return directWalkDist <= walkingLimit ? [directJourney()] : [];
     }
 
     // Build spatial grid for stops to speed up local searches
@@ -216,13 +296,18 @@ class RaptorPathfindingService {
       stopGrid.putIfAbsent(key, () => []).add(stop);
     }
 
-    List<StopsAndStopTimesModel> getNearbyStops(double lat, double lon, double maxDist) {
+    List<StopsAndStopTimesModel> getNearbyStops(
+      double lat,
+      double lon,
+      double maxDist,
+    ) {
       final List<StopsAndStopTimesModel> nearby = [];
       final int latKey = (lat * 100).floor();
       final int lonKey = (lon * 100).floor();
+      final cells = math.max(1, (maxDist / 900).ceil());
 
-      for (int dl = -1; dl <= 1; dl++) {
-        for (int dg = -1; dg <= 1; dg++) {
+      for (int dl = -cells; dl <= cells; dl++) {
+        for (int dg = -cells; dg <= cells; dg++) {
           final cellKey = '${latKey + dl},${lonKey + dg}';
           final cellStops = stopGrid[cellKey];
           if (cellStops != null) {
@@ -254,12 +339,23 @@ class RaptorPathfindingService {
     // Precompute transfers (walks between stops)
     final Map<String, List<Transfer>> transfers = {};
     for (final stop in allStops.values) {
-      final nearby = getNearbyStops(stop.stopLat, stop.stopLon, 800.0);
+      final nearby = getNearbyStops(
+        stop.stopLat,
+        stop.stopLon,
+        walkingLimit / _walkCircuityFactor,
+      );
       final List<Transfer> list = [];
       for (final other in nearby) {
         if (other.stopId == stop.stopId) continue;
-        final d = computeDistance(stop.stopLat, stop.stopLon, other.stopLat, other.stopLon);
-        list.add(Transfer(toStopId: other.stopId, distance: d));
+        final d = computeDistance(
+          stop.stopLat,
+          stop.stopLon,
+          other.stopLat,
+          other.stopLon,
+        );
+        if (d * _walkCircuityFactor <= walkingLimit) {
+          list.add(Transfer(toStopId: other.stopId, distance: d));
+        }
       }
       transfers[stop.stopId] = list;
     }
@@ -276,32 +372,40 @@ class RaptorPathfindingService {
       (_) => {for (var s in allStops.keys) s: infinity.toDouble()},
     );
 
-    final parents = <String, _Parent>{};
+    final parents = <(int, String), _Parent>{};
 
     // --- Initial Walking Phase (Origin -> Stops) ---
-    List<Transfer> originNearby = [];
-    double currentOriginRadius = _originSearchRadius;
-
-    // Expand radius until at least one stop is found, up to 5km
-    while (originNearby.isEmpty && currentOriginRadius <= 5000.0) {
-      final nearby = getNearbyStops(originLat, originLng, currentOriginRadius);
-      originNearby = nearby.map((s) => Transfer(
-        toStopId: s.stopId,
-        distance: computeDistance(originLat, originLng, s.stopLat, s.stopLon),
-      )).toList();
-
-      if (originNearby.isEmpty) {
-        currentOriginRadius += 500.0;
-      }
-    }
+    final originNearby =
+        getNearbyStops(
+              originLat,
+              originLng,
+              walkingLimit / _walkCircuityFactor,
+            )
+            .map(
+              (s) => Transfer(
+                toStopId: s.stopId,
+                distance: computeDistance(
+                  originLat,
+                  originLng,
+                  s.stopLat,
+                  s.stopLon,
+                ),
+              ),
+            )
+            .where(
+              (walk) => walk.distance * _walkCircuityFactor <= walkingLimit,
+            )
+            .toList();
 
     var markedStops = <String>{};
     for (var transfer in originNearby) {
       final realWalkingDist = transfer.distance * _walkCircuityFactor;
-      bestCostOverall[transfer.toStopId] = realWalkingDist;
-      roundCosts[0][transfer.toStopId] = realWalkingDist;
-      parents[transfer.toStopId] = _Parent(
+      final cost = walkingCost(realWalkingDist);
+      bestCostOverall[transfer.toStopId] = cost;
+      roundCosts[0][transfer.toStopId] = cost;
+      parents[(0, transfer.toStopId)] = _Parent(
         fromStopId: "__ORIGIN__",
+        fromRound: 0,
         routeId: null,
         distance: realWalkingDist,
       );
@@ -314,14 +418,14 @@ class RaptorPathfindingService {
     final candidates = <String, _ResultMeta>{};
 
     // --- Direct Walk Option ---
-    final directWalkDist =
-        computeDistance(originLat, originLng, destLat, destLng) * _walkCircuityFactor;
-    candidates["__DIRECT__"] = _ResultMeta(
-      stopId: "__DIRECT__",
-      totalCost: directWalkDist,
-      finalDist: directWalkDist,
-      parents: {},
-    );
+    if (directWalkDist <= walkingLimit) {
+      candidates['__DIRECT__'] = _ResultMeta(
+        stopId: '__DIRECT__',
+        round: -1,
+        totalCost: walkingCost(directWalkDist),
+        finalDist: directWalkDist,
+      );
+    }
 
     while (markedStops.isNotEmpty && currentRound < _maxRounds) {
       currentRound++;
@@ -365,7 +469,7 @@ class RaptorPathfindingService {
           final prevRoundCost = roundCosts[currentRound - 1][stopId]!;
           if (prevRoundCost < infinity) {
             // First boarding from origin has no penalty; subsequent are transfers
-            final penalty = currentRound > 1 ? _transferPenalty : 0.0;
+            final penalty = currentRound > 1 ? transferPenalty : 0.0;
             final potentialBoardingCost = prevRoundCost + penalty;
             if (!boarding || potentialBoardingCost < costAtBoarding) {
               boarding = true;
@@ -380,19 +484,15 @@ class RaptorPathfindingService {
             final transitDist = currentDistOnRoute - distAtBoarding;
 
             final rr = routesById[routeId];
-            final isTrain = routeId.startsWith('ROUTE') || (rr?.vehicleType == VehicleType.train);
-            final effectiveWeight = isTrain
-                ? (_transitCostWeight / _trainCostDivisor)
-                : _transitCostWeight;
-
             final arrivalCost =
-                costAtBoarding + (transitDist * effectiveWeight);
+                costAtBoarding + transitCost(rr!.vehicleType, transitDist);
 
             if (arrivalCost < bestCostOverall[stopId]!) {
               bestCostOverall[stopId] = arrivalCost;
               roundCosts[currentRound][stopId] = arrivalCost;
-              parents[stopId] = _Parent(
+              parents[(currentRound, stopId)] = _Parent(
                 fromStopId: boardingStopId!,
+                fromRound: currentRound - 1,
                 routeId: routeId,
               );
               markedStops.add(stopId);
@@ -407,12 +507,14 @@ class RaptorPathfindingService {
         final stopTransfers = transfers[stopId] ?? [];
         for (var transfer in stopTransfers) {
           final realTransferDist = transfer.distance * _walkCircuityFactor;
-          final newTotalCost = bestCostOverall[stopId]! + realTransferDist;
+          final newTotalCost =
+              bestCostOverall[stopId]! + walkingCost(realTransferDist);
           if (newTotalCost < bestCostOverall[transfer.toStopId]!) {
             bestCostOverall[transfer.toStopId] = newTotalCost;
             roundCosts[currentRound][transfer.toStopId] = newTotalCost;
-            parents[transfer.toStopId] = _Parent(
+            parents[(currentRound, transfer.toStopId)] = _Parent(
               fromStopId: stopId,
+              fromRound: currentRound,
               routeId: null,
               distance: realTransferDist,
             );
@@ -430,14 +532,23 @@ class RaptorPathfindingService {
         if (costToStop >= infinity) continue;
 
         final stop = allStops[stopId]!;
-        final d = computeDistance(stop.stopLat, stop.stopLon, destLat, destLng);
-        if (d <= _maxWalkingRadius) {
-          roundReachable.add(_ResultMeta(
-            stopId: stopId,
-            totalCost: costToStop + d,
-            finalDist: d,
-            parents: Map.from(parents),
-          ));
+        final d =
+            computeDistance(
+              stop.stopLat,
+              stop.stopLon,
+              destLat,
+              destLng,
+            ) *
+            _walkCircuityFactor;
+        if (d <= walkingLimit) {
+          roundReachable.add(
+            _ResultMeta(
+              stopId: stopId,
+              round: currentRound,
+              totalCost: costToStop + walkingCost(d),
+              finalDist: d,
+            ),
+          );
         }
       }
 
@@ -446,7 +557,8 @@ class RaptorPathfindingService {
       // Keep the cheapest candidate per distinct arrival route this round.
       final seenRoutesThisRound = <String>{};
       for (final meta in roundReachable) {
-        final arrivalRoute = parents[meta.stopId]?.routeId ?? 'walk';
+        final arrivalRoute =
+            parents[(currentRound, meta.stopId)]?.routeId ?? 'walk';
         if (seenRoutesThisRound.add(arrivalRoute)) {
           candidates['${arrivalRoute}_r$currentRound'] = meta;
         }
@@ -454,46 +566,9 @@ class RaptorPathfindingService {
       }
     }
 
-    // --- Exhaustive Fallback ---
-    if (candidates.length <= 1) {
-      String? fallbackStop;
-      double fallbackCost = infinity.toDouble();
-      double? fallbackDist;
-
-      for (var entry in bestCostOverall.entries) {
-        final stopId = entry.key;
-        final costToStop = entry.value;
-        if (costToStop >= infinity) continue;
-
-        final stop = allStops[stopId]!;
-        final d = computeDistance(stop.stopLat, stop.stopLon, destLat, destLng);
-        if (d <= 5000.0) {
-          final realWalkDist = d * _walkCircuityFactor;
-          final totalCost = costToStop + realWalkDist;
-          if (totalCost < fallbackCost) {
-            fallbackCost = totalCost;
-            fallbackStop = stopId;
-            fallbackDist = realWalkDist;
-          }
-        }
-      }
-      if (fallbackStop != null) {
-        candidates["fallback"] = _ResultMeta(
-          stopId: fallbackStop,
-          totalCost: fallbackCost,
-          finalDist: fallbackDist!,
-          parents: Map.from(parents),
-        );
-      }
-    }
-
     // --- Reconstruct Results ---
     final allJourneys = <Journey>[];
-
-    final sortedMetas = candidates.values.toList()
-      ..sort((a, b) => a.totalCost.compareTo(b.totalCost));
-
-    for (var meta in sortedMetas) {
+    for (final meta in candidates.values) {
       Journey journey;
       if (meta.stopId == "__DIRECT__") {
         journey = Journey([
@@ -505,31 +580,74 @@ class RaptorPathfindingService {
             toStopName: 'destination',
             vehicleType: VehicleType.walk,
           ),
-        ]);
+        ], routingCost: meta.totalCost);
       } else {
         journey = _reconstructSingleJourney(
           meta.stopId,
+          meta.round,
           meta.finalDist,
-          meta.parents,
+          parents,
           allStops,
           routesById,
+          meta.totalCost,
         );
       }
 
       allJourneys.add(journey);
-
-      if (allJourneys.length >= _maxResults) break;
     }
-
-    return allJourneys;
+    sortJourneys(allJourneys, options.priority);
+    final seen = <String>{};
+    return allJourneys
+        .where((journey) => seen.add(journey.signature))
+        .take(_maxResults)
+        .toList();
   }
+
+  void sortJourneys(List<Journey> journeys, RoutePriority priority) =>
+      journeys.sort((a, b) => _compareJourneys(a, b, priority));
+
+  int _compareJourneys(
+    Journey a,
+    Journey b,
+    RoutePriority priority,
+  ) {
+    final primary = switch (priority) {
+      RoutePriority.fastest => a.estimatedDurationSeconds.compareTo(
+        b.estimatedDurationSeconds,
+      ),
+      RoutePriority.fewerTransfers => a.boardings.compareTo(b.boardings),
+      RoutePriority.lessWalking => a.walkingDistance.compareTo(
+        b.walkingDistance,
+      ),
+    };
+    if (primary != 0) return primary;
+    if (priority != RoutePriority.fastest) {
+      final duration = a.estimatedDurationSeconds.compareTo(
+        b.estimatedDurationSeconds,
+      );
+      if (duration != 0) return duration;
+    }
+    final cost = a.routingCost.compareTo(b.routingCost);
+    return cost != 0 ? cost : a.signature.compareTo(b.signature);
+  }
+
+  TransportMode? _transportMode(VehicleType type) => switch (type) {
+    VehicleType.train => TransportMode.train,
+    VehicleType.bus => TransportMode.bus,
+    VehicleType.jeep => TransportMode.jeep,
+    VehicleType.uvExpress => TransportMode.uvExpress,
+    VehicleType.tricycle => TransportMode.tricycle,
+    VehicleType.walk || VehicleType.unknown => null,
+  };
 
   Journey _reconstructSingleJourney(
     String lastStopId,
+    int lastRound,
     double lastDist,
-    Map<String, _Parent> parents,
+    Map<(int, String), _Parent> parents,
     Map<String, StopsAndStopTimesModel> allStops,
     Map<String, RaptorRoute> routesById,
+    double routingCost,
   ) {
     final legs = <Leg>[];
 
@@ -546,12 +664,15 @@ class RaptorPathfindingService {
     );
 
     String currentStopId = lastStopId;
+    var currentRound = lastRound;
     while (currentStopId != "__ORIGIN__") {
-      final parent = parents[currentStopId];
+      final parent = parents[(currentRound, currentStopId)];
       if (parent == null) break;
 
       final isWalking = parent.routeId == null;
-      final fromStop = parent.fromStopId == "__ORIGIN__" ? null : allStops[parent.fromStopId];
+      final fromStop = parent.fromStopId == "__ORIGIN__"
+          ? null
+          : allStops[parent.fromStopId];
       final toStop = allStops[currentStopId];
 
       if (isWalking) {
@@ -568,7 +689,7 @@ class RaptorPathfindingService {
         );
       } else {
         final rr = routesById[parent.routeId!];
-        
+
         // Calculate transit distance along the route
         double transitDist = 0.0;
         if (rr != null) {
@@ -576,7 +697,9 @@ class RaptorPathfindingService {
           final startIdx = stops.indexOf(parent.fromStopId);
           final endIdx = stops.indexOf(currentStopId);
           if (startIdx != -1 && endIdx != -1 && startIdx < endIdx) {
-            transitDist = rr.cumulativeDistances[endIdx] - rr.cumulativeDistances[startIdx];
+            transitDist =
+                rr.cumulativeDistances[endIdx] -
+                rr.cumulativeDistances[startIdx];
           }
         }
 
@@ -585,7 +708,7 @@ class RaptorPathfindingService {
           Leg(
             fromStopId: parent.fromStopId,
             toStopId: currentStopId,
-            routeId: parent.routeId!,
+            routeId: rr?.sourceRouteId ?? parent.routeId!,
             tripId: rr?.tripId ?? '',
             distance: transitDist,
             routeLongName: rr?.routeLongName ?? 'Unknown Route',
@@ -596,8 +719,9 @@ class RaptorPathfindingService {
         );
       }
       currentStopId = parent.fromStopId;
+      currentRound = parent.fromRound;
     }
 
-    return Journey(legs);
+    return Journey(legs, routingCost: routingCost);
   }
 }
