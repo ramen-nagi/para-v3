@@ -19,6 +19,7 @@ class RoutesPageMap extends StatefulWidget {
 
 class _RoutesPageMapState extends State<RoutesPageMap> {
   MapboxMap? _mapboxMap;
+  CircleAnnotationManager? _stopAnnotationManager;
 
   List<Position> _getStopTimesStopsCoord(String tripId) {
     final trip = widget.route.trips.where((trip) => trip.tripId == tripId);
@@ -42,6 +43,31 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
         .toList();
   }
 
+  Future<void> _drawRouteStops(String tripId) async {
+    final map = _mapboxMap;
+    if (map == null) return;
+
+    final positions = _getStopTimesStopsCoord(tripId);
+    final manager = _stopAnnotationManager ??= await map.annotations
+        .createCircleAnnotationManager(id: 'route-stop-markers');
+    await manager.deleteAll();
+    if (positions.isEmpty) return;
+
+    await manager.createMulti(
+      positions
+          .map(
+            (position) => CircleAnnotationOptions(
+              geometry: Point(coordinates: position),
+              circleColor: 0xFF1976D2,
+              circleRadius: 4,
+              circleStrokeColor: 0xFFFFFFFF,
+              circleStrokeWidth: 1.5,
+            ),
+          )
+          .toList(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -51,7 +77,10 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
       body: Stack(
         children: [
           UniversalMapTile(
-            onMapCreated: (mapboxMap) => _mapboxMap = mapboxMap,
+            onMapCreated: (mapboxMap) {
+              _mapboxMap = mapboxMap;
+              _stopAnnotationManager = null;
+            },
           ),
           DragScrollSheet(
             children: [
@@ -77,6 +106,7 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
                       map,
                       result.coordinates,
                     );
+                    await _drawRouteStops(trip.tripId);
                   },
                   // TODO: Make the button display the start and end stopNames
                   child: Text(trip.tripId),
