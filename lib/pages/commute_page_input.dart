@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/location_textfield.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
@@ -101,7 +103,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
     final requestId = ++_suggestionRequestId;
     _autocomplete.cancelPendingSuggestions();
 
-    final hasEmptyInput = widget.originController.text.trim().isEmpty ||
+    final hasEmptyInput =
+        widget.originController.text.trim().isEmpty ||
         widget.destinationController.text.trim().isEmpty;
     if (!hasEmptyInput) {
       if (!mounted || requestId != _suggestionRequestId) return;
@@ -168,6 +171,71 @@ class _CommutePageInputState extends State<CommutePageInput> {
     );
   }
 
+  Future<void> _useCurrentLocation() async {
+    try {
+      final isDestination = _destinationFocusNode.hasFocus;
+      final permission = await geo.Geolocator.checkPermission();
+      var resolvedPermission = permission;
+      if (permission == geo.LocationPermission.denied) {
+        resolvedPermission = await geo.Geolocator.requestPermission();
+      }
+      if (resolvedPermission == geo.LocationPermission.deniedForever ||
+          resolvedPermission == geo.LocationPermission.denied) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location permission is required.')),
+        );
+        return;
+      }
+
+      final serviceEnabled = await geo.Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enable location services.')),
+        );
+        return;
+      }
+
+      final current = await geo.Geolocator.getCurrentPosition();
+      final position = Position(current.longitude, current.latitude);
+      final controller = isDestination
+          ? widget.destinationController
+          : widget.originController;
+      controller.text =
+          'Current location (${current.latitude.toStringAsFixed(5)}, '
+          '${current.longitude.toStringAsFixed(5)})';
+
+      setState(() {
+        if (isDestination) {
+          _destinationPosition = position;
+        } else {
+          _originPosition = position;
+        }
+        _suggestions = [];
+      });
+      FocusScope.of(context).unfocus();
+
+      if (_originPosition != null && _destinationPosition != null && mounted) {
+        Navigator.of(context).pop(
+          CommuteInputResult(
+            originPosition: _originPosition,
+            destinationPosition: _destinationPosition,
+          ),
+        );
+      }
+    } on MissingPluginException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Location is unavailable until the app is fully restarted.',
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
@@ -181,57 +249,75 @@ class _CommutePageInputState extends State<CommutePageInput> {
         return false;
       },
       child: Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Commute',
-          style: TextStyle(
-            color: Colors.white
+        appBar: AppBar(
+          title: const Text(
+            'Commute',
+            style: TextStyle(color: Colors.white),
           ),
+          backgroundColor: Colors.blue,
+          foregroundColor: Colors.white,
         ),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
-      ),
-      body: Column(
-        children: [
-          LocationTextfield(
-            originController: widget.originController,
-            destinationController: widget.destinationController,
-            originFocusNode: _originFocusNode,
-            destinationFocusNode: _destinationFocusNode,
-            onOriginChanged: _onQueryChanged,
-            onDestinationChanged: _onQueryChanged,
-            showTrailingActions: true,
-          ),
-
-          const Divider(height: 10),
-          
-          Expanded(
-            child: ListView.builder(
-              itemCount: _suggestions.length,
-              itemBuilder: (context, index) {
-                final suggestion = _suggestions[index];
-                return ListTile(
-                  leading: Icon(
-                    _showingRecents
-                        ? Icons.history
-                        : Icons.location_on_rounded,
-                  ),
-                  onTap: () => _selectSuggestion(suggestion),
-                  title: Text(
-                    suggestion.mainText,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Text(
-                    suggestion.secondaryText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                );
-              },
+        body: Column(
+          children: [
+            LocationTextfield(
+              originController: widget.originController,
+              destinationController: widget.destinationController,
+              originFocusNode: _originFocusNode,
+              destinationFocusNode: _destinationFocusNode,
+              onOriginChanged: _onQueryChanged,
+              onDestinationChanged: _onQueryChanged,
+              showTrailingActions: true,
             ),
-          ),
-        ],
-      ),
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SizedBox(
+                width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                onPressed: _useCurrentLocation,
+                  icon: const Icon(Icons.my_location),
+                  label: const Text('Use my current location'),
+                ),
+              ),
+            ),
+
+            const Divider(height: 10),
+
+            Expanded(
+              child: ListView.builder(
+                itemCount: _suggestions.length,
+                itemBuilder: (context, index) {
+                  final suggestion = _suggestions[index];
+                  return ListTile(
+                    leading: Icon(
+                      _showingRecents
+                          ? Icons.history
+                          : Icons.location_on_rounded,
+                    ),
+                    onTap: () => _selectSuggestion(suggestion),
+                    title: Text(
+                      suggestion.mainText,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      suggestion.secondaryText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
