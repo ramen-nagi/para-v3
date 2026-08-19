@@ -2,6 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'routes_page_map.dart';
 
+IconData getIconForType(VehicleType type) {
+  switch (type) {
+    case VehicleType.bus:
+      return Icons.directions_bus;
+    case VehicleType.jeep:
+      return Icons.airport_shuttle;
+    case VehicleType.train:
+      return Icons.train;
+    case VehicleType.tricycle:
+      return Icons.pedal_bike;
+    case VehicleType.uvExpress:
+      return Icons.directions_car;
+    default:
+      return Icons.alt_route;
+  }
+}
+
 class RoutesPage extends StatefulWidget {
   const RoutesPage({super.key});
 
@@ -94,7 +111,7 @@ class _RoutesPageState extends State<RoutesPage> {
     return Card(
       margin: const EdgeInsets.only(bottom: 8.0),
       child: ListTile(
-        leading: Icon(_getIconForType(route.vehicleType)),
+        leading: Icon(getIconForType(route.vehicleType)),
         title: Text(route.routeLongName),
         subtitle: Text(
           '${route.trips.length} direction trips',
@@ -260,20 +277,4 @@ class _RoutesPageState extends State<RoutesPage> {
     );
   }
 
-  IconData _getIconForType(VehicleType type) {
-    switch (type) {
-      case VehicleType.bus:
-        return Icons.directions_bus;
-      case VehicleType.jeep:
-        return Icons.airport_shuttle;
-      case VehicleType.train:
-        return Icons.train;
-      case VehicleType.tricycle:
-        return Icons.pedal_bike;
-      case VehicleType.uvExpress:
-        return Icons.directions_car;
-      default:
-        return Icons.alt_route;
-    }
-  }
 }

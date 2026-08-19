@@ -4,6 +4,7 @@ import 'package:para_v3/module/drag_scroll_sheet.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'package:para_v3/services/mapbox_services.dart';
+import 'routes_page.dart';
 
 class RoutesPageMap extends StatefulWidget {
   final RoutesModel route;
@@ -54,17 +55,96 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
     if (positions.isEmpty) return;
 
     await manager.createMulti(
-      positions
+      positions.asMap().entries
           .map(
-            (position) => CircleAnnotationOptions(
-              geometry: Point(coordinates: position),
-              circleColor: 0xFF1976D2,
+            (entry) => CircleAnnotationOptions(
+              geometry: Point(coordinates: entry.value),
+              circleColor: _stopMarkerColor(entry.key, positions.length),
               circleRadius: 4,
               circleStrokeColor: 0xFFFFFFFF,
               circleStrokeWidth: 1.5,
             ),
           )
           .toList(),
+    );
+  }
+
+  int _stopMarkerColor(int index, int totalStops) {
+    if (index == 0) return 0xFF1877F2;
+    if (index == totalStops - 1) return 0xFFF44336;
+    return 0xFF1976D2;
+  }
+
+  Future<void> _panCameraToFitTrip(TripsModel trip) async {
+    final map = _mapboxMap;
+
+    final stops = _getStopTimesStopsCoord(trip.tripId);
+    final coordinates = stops.length >= 2 ? stops : _getShapeCoordinates(trip);
+    if (coordinates.length < 2) return;
+
+    final camera = await map!.cameraForCoordinates(
+      coordinates.map((position) => Point(coordinates: position)).toList(),
+      MbxEdgeInsets(top: 100, left: 40, bottom: 300, right: 40),
+      null,
+      null,
+    );
+    await map.flyTo(camera, MapAnimationOptions(duration: 500));
+  }
+
+  Widget _buildTripButton(TripsModel trip) {
+    final stops = List<StopsAndStopTimesModel>.from(trip.stopTimes)
+      ..sort((a, b) => a.stopSequence.compareTo(b.stopSequence));
+    final firstStop = stops.isNotEmpty ? stops.first : null;
+    final lastStop = stops.length > 1 ? stops.last : firstStop;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () async {
+        final map = _mapboxMap;
+
+        final isTrain = widget.route.vehicleType == VehicleType.train;
+        final result = isTrain
+            ? await MapMatchingService.fetchRouteMetadataResultTrain(
+                widget.route.vehicleType,
+                _getShapeCoordinates(trip),
+              )
+            : await MapMatchingService.fetchMapMatching(
+                'driving-traffic',
+                _getStopTimesStopsCoord(trip.tripId),
+              );
+        if (result == null) return;
+
+        await MapMatchingService.drawPolyline(map!, result.coordinates);
+        await _drawRouteStops(trip.tripId);
+        await _panCameraToFitTrip(trip);
+        },
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          leading: Icon(getIconForType(widget.route.vehicleType)),
+          title: Row(
+            children: [
+              Text(
+                firstStop?.stopName ?? 'Unknown stop',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4),
+                child: Icon(Icons.navigate_next),
+              ),
+              Text(
+                lastStop?.stopName ?? 'Unknown stop',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
+              ),
+            ],
+          ),
+          subtitle: Text('${stops.length} stops'),
+        ),
+      ),
     );
   }
 
@@ -83,34 +163,10 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
             },
           ),
           DragScrollSheet(
+            initialChildSize: 0.22,
             children: [
               for (final trip in widget.route.trips)
-                ElevatedButton(
-                  onPressed: () async {
-                    final map = _mapboxMap;
-                    if (map == null) return;
-
-                    final isTrain = widget.route.vehicleType == VehicleType.train;
-                    final result = isTrain
-                        ? await MapMatchingService.fetchRouteMetadataResultTrain(
-                            widget.route.vehicleType,
-                            _getShapeCoordinates(trip),
-                          )
-                        : await MapMatchingService.fetchMapMatching(
-                            'driving-traffic',
-                            _getStopTimesStopsCoord(trip.tripId),
-                          );
-                    if (result == null) return;
-
-                    await MapMatchingService.drawPolyline(
-                      map,
-                      result.coordinates,
-                    );
-                    await _drawRouteStops(trip.tripId);
-                  },
-                  // TODO: Make the button display the start and end stopNames
-                  child: Text(trip.tripId),
-                ),
+                _buildTripButton(trip),
             ],
           ),
         ],
