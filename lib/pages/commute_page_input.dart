@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/location_textfield.dart';
+import 'package:para_v3/pages/saved_place_page.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
 import 'package:para_v3/services/recents_service.dart';
 
@@ -47,6 +48,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
   int _suggestionRequestId = 0;
   Position? _originPosition;
   Position? _destinationPosition;
+  List<SavedPlace> _savedPlaces = [];
 
   @override
   void initState() {
@@ -57,11 +59,82 @@ class _CommutePageInputState extends State<CommutePageInput> {
     _destinationFocusNode.addListener(_onDestinationFocusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadRecentSuggestions();
+      _loadSavedPlaces();
       final focusNode = widget.initialField == CommuteInputField.origin
           ? _originFocusNode
           : _destinationFocusNode;
       focusNode.requestFocus();
     });
+  }
+
+  Future<void> _loadSavedPlaces() async {
+    final places = await RecentsService.instance.getSavedPlaces();
+    if (mounted) setState(() => _savedPlaces = places);
+  }
+
+  SavedPlace? _savedPlace(String key) {
+    for (final place in _savedPlaces) {
+      if (place.key == key) return place;
+    }
+    return null;
+  }
+
+  Future<void> _openSavePlace(String key, String label) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SavedPlacePage(saveKey: key, initialLabel: label),
+      ),
+    );
+    await _loadSavedPlaces();
+  }
+
+  Future<void> _handleSavedPlace(String key, String label) async {
+    final place = _savedPlace(key);
+    if (place == null) {
+      await _openSavePlace(key, label);
+      return;
+    }
+    final isDestination = _destinationFocusNode.hasFocus;
+    final controller = isDestination
+        ? widget.destinationController
+        : widget.originController;
+    controller.text = place.suggestion.fullText;
+    setState(() {
+      if (isDestination) {
+        _destinationPosition = place.position;
+      } else {
+        _originPosition = place.position;
+      }
+    });
+    FocusScope.of(context).unfocus();
+    if (_originPosition != null && _destinationPosition != null && mounted) {
+      Navigator.of(context).pop(CommuteInputResult(
+        originPosition: _originPosition,
+        destinationPosition: _destinationPosition,
+      ));
+    }
+  }
+
+  Future<void> _addCustomPlace() async {
+    final controller = TextEditingController();
+    final label = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Name saved place'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Name'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Next')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted || label == null || label.isEmpty) return;
+    await _openSavePlace('custom_${DateTime.now().microsecondsSinceEpoch}', label);
   }
 
   @override
@@ -259,17 +332,17 @@ class _CommutePageInputState extends State<CommutePageInput> {
         ),
         body: Column(
           children: [
-            LocationTextfield(
+          LocationTextfield(
               originController: widget.originController,
               destinationController: widget.destinationController,
               originFocusNode: _originFocusNode,
               destinationFocusNode: _destinationFocusNode,
               onOriginChanged: _onQueryChanged,
               onDestinationChanged: _onQueryChanged,
-              showTrailingActions: true,
-            ),
+            showTrailingActions: true,
+          ),
 
-            Padding(
+          Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: SizedBox(
                 width: double.infinity,
@@ -286,6 +359,34 @@ class _CommutePageInputState extends State<CommutePageInput> {
                   icon: const Icon(Icons.my_location),
                   label: const Text('Use my current location'),
                 ),
+              ),
+            ),
+
+            SizedBox(
+              height: 88,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                children: [
+                  for (final entry in const [
+                    ('home', 'Home', Icons.home_outlined),
+                    ('school', 'School', Icons.school_outlined),
+                    ('work', 'Work', Icons.work_outline),
+                  ])
+                    _savedPlaceTab(entry.$1, entry.$2, entry.$3),
+                  for (final place in _savedPlaces.where(
+                    (place) => !const {'home', 'school', 'work'}.contains(place.key),
+                  ))
+                    _savedPlaceTab(place.key, place.label, Icons.bookmark_outline),
+                  SizedBox(
+                    height: 64,
+                    child: ActionChip(
+                      avatar: const Icon(Icons.add),
+                      label: const Text('Add place'),
+                      onPressed: _addCustomPlace,
+                    ),
+                  ),
+                ],
               ),
             ),
 
@@ -317,6 +418,53 @@ class _CommutePageInputState extends State<CommutePageInput> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _savedPlaceTab(String key, String label, IconData icon) {
+    final place = _savedPlace(key);
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: SizedBox(
+        width: 150,
+        height: 64,
+        child: Card(
+          margin: EdgeInsets.zero,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _handleSavedPlace(key, label),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: Row(
+                children: [
+                  Icon(icon, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          place?.suggestion.mainText ?? 'Tap to Set Address',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
