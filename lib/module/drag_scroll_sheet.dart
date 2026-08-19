@@ -32,14 +32,20 @@ class _DragScrollSheetState extends State<DragScrollSheet> {
   @override
   void initState() {
     super.initState();
-    DragScrollSheet.sheetExtent.value = widget.initialChildSize;
     _sheetController.addListener(_publishSheetExtent);
+    _publishExtentAfterFrame(widget.initialChildSize);
   }
 
   void _publishSheetExtent() {
     if (_sheetController.isAttached) {
-      DragScrollSheet.sheetExtent.value = _sheetController.size;
+      _publishExtentAfterFrame(_sheetController.size);
     }
+  }
+
+  void _publishExtentAfterFrame(double extent) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      DragScrollSheet.sheetExtent.value = extent;
+    });
   }
 
   void _toggleSheetHeight() {
@@ -62,7 +68,7 @@ class _DragScrollSheetState extends State<DragScrollSheet> {
   void dispose() {
     _sheetController.removeListener(_publishSheetExtent);
     _sheetController.dispose();
-    DragScrollSheet.sheetExtent.value = 0.0;
+    _publishExtentAfterFrame(0.0);
     super.dispose();
   }
 

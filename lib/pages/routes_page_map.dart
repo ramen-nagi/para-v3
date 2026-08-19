@@ -21,6 +21,8 @@ class RoutesPageMap extends StatefulWidget {
 class _RoutesPageMapState extends State<RoutesPageMap> {
   MapboxMap? _mapboxMap;
   CircleAnnotationManager? _stopAnnotationManager;
+  String? _selectedTripId;
+  RouteMetadataResult? _selectedTripMetadata;
 
   List<Position> _getStopTimesStopsCoord(String tripId) {
     final trip = widget.route.trips.where((trip) => trip.tripId == tripId);
@@ -99,6 +101,18 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
+      color: _selectedTripId == trip.tripId
+          ? Theme.of(context).colorScheme.primaryContainer
+          : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: _selectedTripId == trip.tripId
+              ? Theme.of(context).colorScheme.primary
+              : Colors.transparent,
+          width: 2,
+        ),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () async {
@@ -116,6 +130,12 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
               );
         if (result == null) return;
 
+        if (!mounted) return;
+        setState(() {
+          _selectedTripId = trip.tripId;
+          _selectedTripMetadata = result;
+        });
+
         await MapMatchingService.drawPolyline(map!, result.coordinates);
         await _drawRouteStops(trip.tripId);
         await _panCameraToFitTrip(trip);
@@ -125,27 +145,67 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
           leading: Icon(getIconForType(widget.route.vehicleType)),
           title: Row(
             children: [
-              Text(
-                firstStop?.stopName ?? 'Unknown stop',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              Expanded(
+                child: Text(
+                  firstStop?.stopName ?? 'Unknown stop',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 4),
                 child: Icon(Icons.navigate_next),
               ),
-              Text(
-                lastStop?.stopName ?? 'Unknown stop',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.end,
+              Expanded(
+                child: Text(
+                  lastStop?.stopName ?? 'Unknown stop',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                ),
               ),
             ],
           ),
-          subtitle: Text('${stops.length} stops'),
+          subtitle: _buildTripMetadataSubtitle(stops.length, trip.tripId),
         ),
       ),
     );
+  }
+
+  Widget _buildTripMetadataSubtitle(int stopCount, String tripId) {
+    final metadata = _selectedTripId == tripId ? _selectedTripMetadata : null;
+    if (metadata == null) return Text('$stopCount stops');
+
+    return Wrap(
+      spacing: 12,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        _metadataItem(Icons.place_outlined, '$stopCount stops'),
+        _metadataItem(Icons.straighten, _formatDistance(metadata.distanceMeters)),
+        _metadataItem(Icons.schedule, _formatDuration(metadata.durationSeconds)),
+      ],
+    );
+  }
+
+  Widget _metadataItem(IconData icon, String text) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16),
+        const SizedBox(width: 4),
+        Text(text),
+      ],
+    );
+  }
+
+  String _formatDistance(double meters) {
+    if (meters >= 1000) return '${(meters / 1000).toStringAsFixed(1)} km';
+    return '${meters.round()} m';
+  }
+
+  String _formatDuration(double? seconds) {
+    if (seconds == null) return '--';
+    return '${(seconds / 60).round()} min';
   }
 
   @override
