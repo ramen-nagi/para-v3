@@ -126,7 +126,12 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
     }
 
     await mapboxMap.location.updateSettings(
-      LocationComponentSettings(enabled: true),
+      LocationComponentSettings(
+        enabled: true,
+        puckBearingEnabled: true,
+        pulsingEnabled: true,
+        showAccuracyRing: true,
+      ),
     );
     if (!mounted) return;
     setState(() {

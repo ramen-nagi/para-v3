@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:para_v3/module/report_button.dart';
 
 class LocationTextfield extends StatelessWidget {
   final TextEditingController originController;
@@ -10,6 +11,7 @@ class LocationTextfield extends StatelessWidget {
   final ValueChanged<String>? onOriginChanged;
   final ValueChanged<String>? onDestinationChanged;
   final bool readOnly;
+  final bool showTrailingActions;
 
   const LocationTextfield({
     super.key,
@@ -22,6 +24,7 @@ class LocationTextfield extends StatelessWidget {
     this.onOriginChanged,
     this.onDestinationChanged,
     this.readOnly = false,
+    this.showTrailingActions = false,
   });
 
   @override
@@ -67,14 +70,10 @@ class LocationTextfield extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            const Column(
-              children: [
-                Icon(Icons.report_problem_outlined),
-                SizedBox(height: 20),
-                Icon(Icons.swap_vert),
-              ],
-            ),
+            if (showTrailingActions) ...[
+              const SizedBox(width: 8),
+              const Column(children: [ReportButton(), SizedBox(height: 20), Icon(Icons.swap_vert)]),
+            ],
           ],
         ),
       ),

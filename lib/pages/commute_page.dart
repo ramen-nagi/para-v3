@@ -4,10 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/drag_scroll_sheet.dart';
 import 'package:para_v3/module/location_textfield.dart';
+import 'package:para_v3/module/report_button.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
 import 'package:para_v3/pages/commute_page_input.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
-import 'package:para_v3/services/map_matching_service.dart';
+import 'package:para_v3/services/mapbox_services.dart';
 import 'package:para_v3/services/raptor_pathfinding_service.dart';
 import 'package:para_v3/services/fare_calculator_service.dart';
 
@@ -626,6 +627,17 @@ class _CommutePageState extends State<CommutePage> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
+            ),
+            ReportButton(
+              routeId: leg.routeId,
+              tripId: leg.tripId,
+              fromStopId: leg.fromStopId,
+              toStopId: leg.toStopId,
+              vehicleType: leg.vehicleType.name,
+              expectedFare: leg.fare,
+              routeLongName: leg.routeLongName,
+              fromStopName: isFirst ? _originController.text : leg.fromStopName,
+              toStopName: isLast ? _destinationController.text : leg.toStopName,
             ),
           ],
         ),

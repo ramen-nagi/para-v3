@@ -200,6 +200,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
             destinationFocusNode: _destinationFocusNode,
             onOriginChanged: _onQueryChanged,
             onDestinationChanged: _onQueryChanged,
+            showTrailingActions: true,
           ),
 
           const Divider(height: 10),

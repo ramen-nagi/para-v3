@@ -3,7 +3,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/drag_scroll_sheet.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
-import 'package:para_v3/services/map_matching_service.dart';
+import 'package:para_v3/services/mapbox_services.dart';
 
 class RoutesPageMap extends StatefulWidget {
   final RoutesModel route;
