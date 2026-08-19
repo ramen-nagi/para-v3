@@ -77,7 +77,13 @@ class _SavedPlacePageState extends State<SavedPlacePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Save ${widget.initialLabel}')),
+      appBar: AppBar(
+        title: Text(
+          widget.initialLabel.isEmpty
+              ? 'Add saved place'
+              : 'Save ${widget.initialLabel}',
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -101,11 +107,26 @@ class _SavedPlacePageState extends State<SavedPlacePage> {
           ..._suggestions.map(
             (suggestion) => ListTile(
               leading: const Icon(Icons.location_on_rounded),
-              title: Text(suggestion.mainText),
-              subtitle: Text(suggestion.secondaryText),
+              title: Text(
+                suggestion.mainText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                suggestion.secondaryText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               onTap: () => _select(suggestion),
             ),
           ),
+          if (_searchController.text.trim().isNotEmpty &&
+              _suggestions.isEmpty &&
+              _selectedSuggestion == null)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(child: Text('No results found')),
+            ),
           if (_selectedSuggestion != null)
             ListTile(
               leading: const Icon(Icons.check_circle, color: Colors.green),

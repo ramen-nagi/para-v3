@@ -116,25 +116,10 @@ class _CommutePageInputState extends State<CommutePageInput> {
   }
 
   Future<void> _addCustomPlace() async {
-    final controller = TextEditingController();
-    final label = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Name saved place'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Name'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Next')),
-        ],
-      ),
+    await _openSavePlace(
+      'custom_${DateTime.now().microsecondsSinceEpoch}',
+      '',
     );
-    controller.dispose();
-    if (!mounted || label == null || label.isEmpty) return;
-    await _openSavePlace('custom_${DateTime.now().microsecondsSinceEpoch}', label);
   }
 
   @override
@@ -393,33 +378,42 @@ class _CommutePageInputState extends State<CommutePageInput> {
             const Divider(height: 10),
 
             Expanded(
-              child: ListView.builder(
-                itemCount: _suggestions.length,
-                itemBuilder: (context, index) {
-                  final suggestion = _suggestions[index];
-                  return ListTile(
-                    leading: Icon(
-                      _showingRecents
-                          ? Icons.history
-                          : Icons.location_on_rounded,
-                    ),
-                    onTap: () => _selectSuggestion(suggestion),
-                    title: Text(
-                      suggestion.mainText,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Text(
-                      suggestion.secondaryText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  );
-                },
-              ),
+              child: _buildSuggestionsContent(),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSuggestionsContent() {
+    if (_suggestions.isEmpty) {
+      final message = _showingRecents
+          ? 'Search and Select an Address to Start'
+          : 'No results found';
+      return Text(message);
+    }
+
+    return ListView.builder(
+      itemCount: _suggestions.length,
+      itemBuilder: (context, index) {
+        final suggestion = _suggestions[index];
+        return ListTile(
+          leading: Icon(
+            _showingRecents ? Icons.history : Icons.location_on_rounded,
+          ),
+          onTap: () => _selectSuggestion(suggestion),
+          title: Text(
+            suggestion.mainText,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          subtitle: Text(
+            suggestion.secondaryText,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        );
+      },
     );
   }
 
