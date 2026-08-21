@@ -9,14 +9,14 @@ class UniversalMapTile extends StatefulWidget {
   final double initialZoom;
   final bool isStartingCommute;
   final void Function(MapboxMap mapboxMap)? onMapCreated;
-  final void Function(Point point)? onLongTap;
+  final void Function(CameraChangedEventData event)? onCameraChanged;
 
   const UniversalMapTile({
     super.key,
     this.initialZoom = 12.0,
     this.isStartingCommute = false,
     this.onMapCreated,
-    this.onLongTap,
+    this.onCameraChanged,
   });
 
   @override
@@ -196,6 +196,7 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
               widget.onMapCreated!(mapboxMap);
             }
           },
+          onCameraChangeListener: widget.onCameraChanged,
         ),
         if (_locationPermissionState != null &&
             _locationPermissionState != LocationPermissionState.granted)

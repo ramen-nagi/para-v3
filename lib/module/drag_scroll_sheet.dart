@@ -49,6 +49,7 @@ class _DragScrollSheetState extends State<DragScrollSheet> {
   }
 
   void _toggleSheetHeight() {
+    if (widget.minChildSize == widget.maxChildSize) return;
     final targetSize = _isExpanded
         ? widget.snapSizes[1]
         : widget.maxChildSize;
