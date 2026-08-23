@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'gtfs_network_service.dart';
 import 'raptor_pathfinding_service.dart';
 
@@ -9,18 +10,40 @@ class FareCalculatorService {
   final SupabaseClient _client = Supabase.instance.client;
   final Map<String, Map<String, dynamic>> _distanceFareCache = {};
   final Map<String, double> _trainFareCache = {};
+  static const _discountedFarePreferenceKey = 'discounted_fare_estimate';
+  bool _useDiscountedFare = false;
+  Future<void>? _initialization;
+
+  bool get useDiscountedFare => _useDiscountedFare;
+
+  Future<void> initialize() => _initialization ??= _loadPreference();
+
+  Future<void> _loadPreference() async {
+    final preferences = await SharedPreferences.getInstance();
+    _useDiscountedFare =
+        preferences.getBool(_discountedFarePreferenceKey) ?? false;
+  }
+
+  Future<void> setDiscountedFare(bool enabled) async {
+    _useDiscountedFare = enabled;
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_discountedFarePreferenceKey, enabled);
+  }
 
   Future<double?> calculateLegFare(
     Leg leg, {
-    String fareType = 'STANDARD',
+    String? fareType,
   }) async {
+    await initialize();
+    final selectedFareType =
+        fareType ?? (_useDiscountedFare ? 'DISCOUNTED' : 'STANDARD');
     switch (leg.vehicleType) {
       case VehicleType.train:
-        return _calculateTrainFare(leg, fareType);
+        return _calculateTrainFare(leg, selectedFareType);
       case VehicleType.jeep:
       case VehicleType.bus:
       case VehicleType.uvExpress:
-        return _calculateDistanceFare(leg, fareType);
+        return _calculateDistanceFare(leg, selectedFareType);
       case VehicleType.walk:
       case VehicleType.tricycle:
       case VehicleType.unknown:

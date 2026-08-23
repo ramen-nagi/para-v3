@@ -7,6 +7,7 @@ import 'package:para_v3/pages/profile_page_sign_in.dart';
 import 'package:para_v3/pages/profile_page_sign_up.dart';
 import 'package:para_v3/pages/reports_page.dart';
 import 'package:para_v3/pages/route_suggestion_page.dart';
+import 'package:para_v3/services/fare_calculator_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -17,17 +18,25 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   StreamSubscription<AuthState>? _authSubscription;
   User? _user;
-  bool _discountedFareEstimate = false;
+  bool _isDiscounted = false;
 
   @override
   void initState() {
     super.initState();
     _user = Supabase.instance.client.auth.currentUser;
+    _loadFarePreference();
     _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((
       data,
     ) {
       if (mounted) setState(() => _user = data.session?.user);
     });
+  }
+
+  Future<void> _loadFarePreference() async {
+    final fareService = FareCalculatorService.instance;
+    await fareService.initialize();
+    if (!mounted) return;
+    setState(() => _isDiscounted = fareService.useDiscountedFare);
   }
 
   @override
@@ -142,9 +151,12 @@ class _ProfilePageState extends State<ProfilePage> {
                   icon: Icons.confirmation_number_outlined,
                   label: 'Discounted Fare Estimate',
                   trailing: Switch(
-                    value: _discountedFareEstimate,
-                    onChanged: (value) {
-                      setState(() => _discountedFareEstimate = value);
+                    value: _isDiscounted,
+                    onChanged: (value) async {
+                      setState(() => _isDiscounted = value);
+                      await FareCalculatorService.instance.setDiscountedFare(
+                        value,
+                      );
                     },
                   ),
                 ),

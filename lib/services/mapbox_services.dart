@@ -88,11 +88,6 @@ class MapMatchingService {
 
       final distanceMeters = (route['distance'] as num?)?.toDouble() ?? 0;
       final durationSeconds = (route['duration'] as num?)?.toDouble() ?? 0;
-      debugPrint(
-        'Mapbox walking directions: '
-        'distance=${distanceMeters.toStringAsFixed(2)} m; '
-        'duration=${durationSeconds.toStringAsFixed(2)} s',
-      );
       return RouteMetadataResult(
         coordinates: coordinates,
         distanceMeters: distanceMeters,
@@ -200,13 +195,6 @@ class MapMatchingService {
               durationSeconds: (stepData['duration'] as num?)?.toDouble(),
             ));
           }
-
-          debugPrint(
-            'Match ${matchingIndex + 1}, leg ${legIndex + 1}: '
-            'distance=${distanceMeters?.toStringAsFixed(2) ?? 'unknown'} m; '
-            'duration=${durationSeconds?.toStringAsFixed(2) ?? 'unknown'} s; '
-            'congestion=${jsonEncode(congestion ?? const [])}',
-          );
         }
       }
 
@@ -214,11 +202,6 @@ class MapMatchingService {
       final totalDurationInSeconds = durationsInSeconds.fold(
         0.0,
         (sum, value) => sum + value,
-      );
-      debugPrint(
-        'Map Matching totals: '
-        'distance=${totalDistance.toStringAsFixed(2)} m; '
-        'duration=${totalDurationInSeconds.toStringAsFixed(2)} s',
       );
 
       return RouteMetadataResult(
@@ -245,12 +228,6 @@ class MapMatchingService {
         shapeCoordinates[index],
       );
     }
-
-    debugPrint(
-      'Map Matching totals: '
-      'distance=$distanceMeters m; '
-      'duration=${Duration(minutes: 20).inSeconds.toDouble()} s',
-    );
 
     return RouteMetadataResult(
       coordinates: shapeCoordinates,

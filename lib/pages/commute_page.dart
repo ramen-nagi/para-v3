@@ -81,7 +81,6 @@ class _CommutePageState extends State<CommutePage> {
         _sheetView = _CommuteSheetView.journeyOverviews;
       });
     }
-    debugPrint('Running RAPTOR for updated origin and destination.');
     final journeys = RaptorPathfindingService.instance.findJourneys(
       originLat: origin.lat.toDouble(),
       originLng: origin.lng.toDouble(),
@@ -100,16 +99,6 @@ class _CommutePageState extends State<CommutePage> {
       _sheetView = _CommuteSheetView.journeyOverviews;
       _isBuildingJourneys = false;
     });
-
-    debugPrint('RAPTOR returned ${journeys.length} journey(s).');
-    for (var journeyIndex = 0; journeyIndex < journeys.length; journeyIndex++) {
-      final journey = journeys[journeyIndex];
-      final congestion = journey.legs
-          .expand((leg) => leg.traffic ?? const <String?>[])
-          .toList();
-      debugPrint('Journey ${journeyIndex + 1}: $congestion');
-      continue;
-    }
   }
 
   Future<void> _enrichJourneyLegs(Journey journey) async {
