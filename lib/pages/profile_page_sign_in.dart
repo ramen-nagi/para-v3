@@ -37,10 +37,11 @@ class _ProfilePageSignInState extends State<ProfilePageSignIn> {
   }
 
   void _show(String message) {
-    if (mounted)
+    if (mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   @override
