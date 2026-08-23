@@ -20,13 +20,18 @@ class _ProfilePageState extends State<ProfilePage> {
   void initState() {
     super.initState();
     _user = Supabase.instance.client.auth.currentUser;
-    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((
+      data,
+    ) {
       if (mounted) setState(() => _user = data.session?.user);
     });
   }
 
   @override
-  void dispose() { _authSubscription?.cancel(); super.dispose(); }
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,21 +46,34 @@ class _ProfilePageState extends State<ProfilePage> {
           const SizedBox(height: 20),
           if (user == null) ...[
             FilledButton(
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfilePageSignIn())),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ProfilePageSignIn()),
+              ),
               child: const Text('Sign in'),
             ),
             OutlinedButton(
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfilePageSignUp())),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ProfilePageSignUp()),
+              ),
               child: const Text('Create account'),
             ),
           ] else ...[
             OutlinedButton.icon(
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfilePageResetPassword())),
-              icon: const Icon(Icons.lock_reset), label: const Text('Reset password'),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ProfilePageResetPassword(),
+                ),
+              ),
+              icon: const Icon(Icons.lock_reset),
+              label: const Text('Reset password'),
             ),
             FilledButton.icon(
               onPressed: () => Supabase.instance.client.auth.signOut(),
-              icon: const Icon(Icons.logout), label: const Text('Sign out'),
+              icon: const Icon(Icons.logout),
+              label: const Text('Sign out'),
             ),
           ],
           const SizedBox(height: 24),
