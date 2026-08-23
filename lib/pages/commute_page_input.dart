@@ -193,6 +193,31 @@ class _CommutePageInputState extends State<CommutePageInput> {
     }
   }
 
+  void _swapOriginAndDestination() {
+    final originText = widget.originController.text;
+    final destinationText = widget.destinationController.text;
+    final originPosition = _originPosition;
+
+    setState(() {
+      widget.originController.text = destinationText;
+      widget.destinationController.text = originText;
+      _originPosition = _destinationPosition;
+      _destinationPosition = originPosition;
+      _suggestions = [];
+      _showingRecents = false;
+    });
+
+    if (_originPosition != null && _destinationPosition != null && mounted) {
+      FocusScope.of(context).unfocus();
+      Navigator.of(context).pop(
+        CommuteInputResult(
+          originPosition: _originPosition,
+          destinationPosition: _destinationPosition,
+        ),
+      );
+    }
+  }
+
   Future<void> _selectSuggestion(PlaceSuggestion suggestion) async {
     final isDestination = _destinationFocusNode.hasFocus;
     final controller = isDestination
@@ -324,7 +349,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
               destinationFocusNode: _destinationFocusNode,
               onOriginChanged: _onQueryChanged,
               onDestinationChanged: _onQueryChanged,
-            showTrailingActions: true,
+              onSwap: _swapOriginAndDestination,
+              showTrailingActions: true,
           ),
 
           Padding(

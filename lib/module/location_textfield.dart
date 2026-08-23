@@ -10,6 +10,7 @@ class LocationTextfield extends StatelessWidget {
   final VoidCallback? onDestinationTap;
   final ValueChanged<String>? onOriginChanged;
   final ValueChanged<String>? onDestinationChanged;
+  final VoidCallback? onSwap;
   final bool readOnly;
   final bool showTrailingActions;
 
@@ -23,64 +24,12 @@ class LocationTextfield extends StatelessWidget {
     this.onDestinationTap,
     this.onOriginChanged,
     this.onDestinationChanged,
+    this.onSwap,
     this.readOnly = false,
     this.showTrailingActions = false,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildMarker(Colors.blue),
-                const SizedBox(height: 7),
-                for (var index = 0; index < 3; index++) ...[
-                  const Icon(Icons.circle, size: 4, color: Colors.grey),
-                  if (index < 2) const SizedBox(height: 3),
-                ],
-                const SizedBox(height: 7),
-                _buildMarker(Colors.red),
-              ],
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                children: [
-                  const SizedBox(height: 8),
-                  _buildTextField(
-                    controller: originController,
-                    focusNode: originFocusNode,
-                    hintText: 'Origin',
-                    onTap: onOriginTap,
-                    onChanged: onOriginChanged,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildTextField(
-                    controller: destinationController,
-                    focusNode: destinationFocusNode,
-                    hintText: 'Destination',
-                    onTap: onDestinationTap,
-                    onChanged: onDestinationChanged,
-                  ),
-                ],
-              ),
-            ),
-            if (showTrailingActions) ...[
-              const SizedBox(width: 8),
-              const Column(children: [ReportButton(), SizedBox(height: 20), Icon(Icons.swap_vert)]),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMarker(Color color) {
+   Widget _buildMarker(Color color) {
     return Container(
       width: 16,
       height: 16,
@@ -150,6 +99,71 @@ class LocationTextfield extends StatelessWidget {
           },
         );
       },
+    );
+  }
+
+  
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildMarker(Colors.blue),
+                const SizedBox(height: 7),
+                for (var index = 0; index < 3; index++) ...[
+                  const Icon(Icons.circle, size: 4, color: Colors.grey),
+                  if (index < 2) const SizedBox(height: 3),
+                ],
+                const SizedBox(height: 7),
+                _buildMarker(Colors.red),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                children: [
+                  const SizedBox(height: 8),
+                  _buildTextField(
+                    controller: originController,
+                    focusNode: originFocusNode,
+                    hintText: 'Origin',
+                    onTap: onOriginTap,
+                    onChanged: onOriginChanged,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildTextField(
+                    controller: destinationController,
+                    focusNode: destinationFocusNode,
+                    hintText: 'Destination',
+                    onTap: onDestinationTap,
+                    onChanged: onDestinationChanged,
+                  ),
+                ],
+              ),
+            ),
+            if (showTrailingActions) ...[
+              const SizedBox(width: 8),
+              Column(
+                children: [
+                  const ReportButton(),
+                  const SizedBox(height: 10),
+                  IconButton(
+                    tooltip: 'Swap origin and destination',
+                    icon: const Icon(Icons.swap_vert),
+                    onPressed: onSwap,
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
