@@ -3,9 +3,17 @@ import 'package:flutter/material.dart';
 class ProfileTabs {
   final IconData icon;
   final String label;
+  final String? subtitle;
+  final Widget? trailing;
   final VoidCallback? onTap;
 
-  const ProfileTabs({required this.icon, required this.label, this.onTap});
+  const ProfileTabs({
+    required this.icon,
+    required this.label,
+    this.subtitle,
+    this.trailing = const Icon(Icons.chevron_right),
+    this.onTap,
+  });
 }
 
 class ProfileSection extends StatelessWidget {
@@ -25,7 +33,8 @@ class ProfileSection extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             leading: Icon(item.icon),
             title: Text(item.label),
-            trailing: const Icon(Icons.chevron_right),
+            subtitle: item.subtitle == null ? null : Text(item.subtitle!),
+            trailing: item.trailing,
             onTap: item.onTap,
           ),
         const Divider(),

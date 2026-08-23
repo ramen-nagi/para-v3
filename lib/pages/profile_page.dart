@@ -17,6 +17,7 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   StreamSubscription<AuthState>? _authSubscription;
   User? _user;
+  bool _discountedFareEstimate = false;
 
   @override
   void initState() {
@@ -131,15 +132,21 @@ class _ProfilePageState extends State<ProfilePage> {
           ]
           else
             ProfileSection(
-              title: 'Profile Identity',
+              title: 'Profile',
               items: [
                 ProfileTabs(
                   icon: Icons.email_outlined,
-                  label: user.email ?? 'No email address',
+                  label: user.email!,
                 ),
-                const ProfileTabs(
-                  icon: Icons.verified_user_outlined,
-                  label: 'Signed in',
+                ProfileTabs(
+                  icon: Icons.confirmation_number_outlined,
+                  label: 'Discounted Fare Estimate',
+                  trailing: Switch(
+                    value: _discountedFareEstimate,
+                    onChanged: (value) {
+                      setState(() => _discountedFareEstimate = value);
+                    },
+                  ),
                 ),
               ],
             ),
@@ -148,22 +155,19 @@ class _ProfilePageState extends State<ProfilePage> {
             items: [
               ProfileTabs(
                 icon: Icons.palette_outlined,
-                label: 'Theme',
+                label: 'Dark Mode',
                 onTap: _comingSoon,
+                // TODO: add trailing switch to use dark mode
               ),
               ProfileTabs(
                 icon: Icons.notifications_outlined,
                 label: 'Notifications',
                 onTap: _comingSoon,
               ),
-              ProfileTabs(
-                icon: Icons.language,
-                label: 'Language',
-                onTap: _comingSoon,
-              ),
             ],
           ),
           ProfileSection(
+            //TODO: Kayo na bahala ano gusto nyo ilagay dito sa section na to
             title: 'Saved Data',
             items: [
               ProfileTabs(
@@ -204,6 +208,7 @@ class _ProfilePageState extends State<ProfilePage> {
             ],
           ),
           ProfileSection(
+            // TODO: Add content for these tabs
             title: 'Privacy and Support',
             items: [
               ProfileTabs(
@@ -224,6 +229,7 @@ class _ProfilePageState extends State<ProfilePage> {
             ],
           ),
           ProfileSection(
+            // TODO: Add content on these tabs
             title: 'About Para',
             items: [
               ProfileTabs(
@@ -233,13 +239,13 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               ProfileTabs(
                 icon: Icons.app_settings_alt,
-                label: 'App version',
+                label: 'App attributions',
                 onTap: _comingSoon,
               ),
             ],
           ),
           ProfileSection(
-            title: 'Authentication',
+            title: 'Account',
             items: authenticationItems,
           ),
         ],
