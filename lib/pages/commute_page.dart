@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/drag_scroll_sheet.dart';
 import 'package:para_v3/module/location_textfield.dart';
+import 'package:para_v3/module/route_suggestion_button.dart';
 import 'package:para_v3/module/report_button.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
 import 'package:para_v3/pages/commute_page_input.dart';
@@ -869,6 +870,9 @@ class _CommutePageState extends State<CommutePage> {
               ],
               if (_sheetView == _CommuteSheetView.journeyDetails)
                 _buildExpandedJourneyView(_selectedJourney!),
+
+              if (_sheetView == _CommuteSheetView.journeyOverviews)
+                const RouteSuggestionButton(),
             ],
           )
         else if (_journeys.isNotEmpty && _isCommuting && !_isBuildingJourneys)

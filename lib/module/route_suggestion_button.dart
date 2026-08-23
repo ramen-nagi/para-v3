@@ -8,7 +8,7 @@ class RouteSuggestionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: ListTile(
-        leading: const Icon(Icons.alt_route),
+        leading: const Icon(Icons.ios_share_rounded),
         title: const Text('Route not in Para?'),
         subtitle: const Text('Suggest a route'),
         trailing: const Icon(Icons.chevron_right),
