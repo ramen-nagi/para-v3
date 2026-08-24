@@ -39,7 +39,7 @@ class RecentsService {
     }
   }
 
-  Future<SavedPlace?> getSavedPlace(String key) async {
+  Future<SavedPlace?> getSavedPlaceByKey(String key) async {
     final db = await _openDatabase();
     try {
       final rows = db.select('SELECT * FROM $_savedTableName WHERE save_key = ?', [key]);
@@ -96,18 +96,42 @@ class RecentsService {
     }
   }
 
-  Future<void> saveSuggestion(PlaceSuggestion suggestion) async {
+  Future<Position?> getRecentPosition(String placeId) async {
+    final db = await _openDatabase();
+    try {
+      final rows = db.select(
+        'SELECT latitude, longitude FROM $_tableName WHERE place_id = ?',
+        [placeId],
+      );
+      if (rows.isEmpty || rows.first['latitude'] == null || rows.first['longitude'] == null) {
+        return null;
+      }
+      return Position(
+        (rows.first['longitude'] as num).toDouble(),
+        (rows.first['latitude'] as num).toDouble(),
+      );
+    } finally {
+      db.dispose();
+    }
+  }
+
+  Future<void> saveSuggestion(
+    PlaceSuggestion suggestion,
+    Position position,
+  ) async {
     final db = await _openDatabase();
     try {
       db.execute('''
         INSERT OR REPLACE INTO $_tableName (
-          place_id, main_text, secondary_text, full_text
-        ) VALUES (?, ?, ?, ?)
+          place_id, main_text, secondary_text, full_text, latitude, longitude
+        ) VALUES (?, ?, ?, ?, ?, ?)
       ''', [
         suggestion.placeId,
         suggestion.mainText,
         suggestion.secondaryText,
         suggestion.fullText,
+        position.lat,
+        position.lng,
       ]);
       db.execute('''
         DELETE FROM $_tableName
@@ -132,8 +156,18 @@ class RecentsService {
         main_text TEXT NOT NULL,
         secondary_text TEXT NOT NULL,
         full_text TEXT NOT NULL
+        ,latitude REAL
+        ,longitude REAL
       )
     ''');
+    final columns = db.select('PRAGMA table_info($_tableName)');
+    final columnNames = columns.map((row) => row['name'] as String).toSet();
+    if (!columnNames.contains('latitude')) {
+      db.execute('ALTER TABLE $_tableName ADD COLUMN latitude REAL');
+    }
+    if (!columnNames.contains('longitude')) {
+      db.execute('ALTER TABLE $_tableName ADD COLUMN longitude REAL');
+    }
     db.execute('''
       CREATE TABLE IF NOT EXISTS $_savedTableName (
         save_key TEXT PRIMARY KEY,

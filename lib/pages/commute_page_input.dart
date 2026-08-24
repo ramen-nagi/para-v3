@@ -226,10 +226,14 @@ class _CommutePageInputState extends State<CommutePageInput> {
     controller.text = suggestion.fullText;
     setState(() => _suggestions = []);
     FocusScope.of(context).unfocus();
-    await RecentsService.instance.saveSuggestion(suggestion);
 
-    final position = await _autocomplete.geocode(suggestion);
+    final position = await RecentsService.instance.getRecentPosition(
+          suggestion.placeId,
+        ) ??
+        await _autocomplete.geocode(suggestion);
     if (!mounted || position == null) return;
+
+    await RecentsService.instance.saveSuggestion(suggestion, position);
 
     setState(() {
       if (isDestination) {
