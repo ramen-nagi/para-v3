@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/location_textfield.dart';
+import 'package:para_v3/module/appbar.dart';
 import 'package:para_v3/pages/saved_place_page.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
 import 'package:para_v3/services/recents_service.dart';
@@ -108,10 +109,12 @@ class _CommutePageInputState extends State<CommutePageInput> {
     });
     FocusScope.of(context).unfocus();
     if (_originPosition != null && _destinationPosition != null && mounted) {
-      Navigator.of(context).pop(CommuteInputResult(
-        originPosition: _originPosition,
-        destinationPosition: _destinationPosition,
-      ));
+      Navigator.of(context).pop(
+        CommuteInputResult(
+          originPosition: _originPosition,
+          destinationPosition: _destinationPosition,
+        ),
+      );
     }
   }
 
@@ -227,7 +230,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
     setState(() => _suggestions = []);
     FocusScope.of(context).unfocus();
 
-    final position = await RecentsService.instance.getRecentPosition(
+    final position =
+        await RecentsService.instance.getRecentPosition(
           suggestion.placeId,
         ) ??
         await _autocomplete.geocode(suggestion);
@@ -336,17 +340,10 @@ class _CommutePageInputState extends State<CommutePageInput> {
         return false;
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text(
-            'Commute',
-            style: TextStyle(color: Colors.white),
-          ),
-          backgroundColor: Colors.blue,
-          foregroundColor: Colors.white,
-        ),
+        appBar: const ParaAppBar(title: 'Commute'),
         body: Column(
           children: [
-          LocationTextfield(
+            LocationTextfield(
               originController: widget.originController,
               destinationController: widget.destinationController,
               originFocusNode: _originFocusNode,
@@ -355,22 +352,22 @@ class _CommutePageInputState extends State<CommutePageInput> {
               onDestinationChanged: _onQueryChanged,
               onSwap: _swapOriginAndDestination,
               showTrailingActions: true,
-          ),
+            ),
 
-          Padding(
+            Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: SizedBox(
                 width: double.infinity,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                onPressed: _useCurrentLocation,
+                  onPressed: _useCurrentLocation,
                   icon: const Icon(Icons.my_location),
                   label: const Text('Use my current location'),
                 ),
@@ -381,7 +378,10 @@ class _CommutePageInputState extends State<CommutePageInput> {
               height: 88,
               child: ListView(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 children: [
                   for (final entry in const [
                     ('home', 'Home', Icons.home_outlined),
@@ -390,9 +390,14 @@ class _CommutePageInputState extends State<CommutePageInput> {
                   ])
                     _savedPlaceTab(entry.$1, entry.$2, entry.$3),
                   for (final place in _savedPlaces.where(
-                    (place) => !const {'home', 'school', 'work'}.contains(place.key),
+                    (place) =>
+                        !const {'home', 'school', 'work'}.contains(place.key),
                   ))
-                    _savedPlaceTab(place.key, place.label, Icons.bookmark_outline),
+                    _savedPlaceTab(
+                      place.key,
+                      place.label,
+                      Icons.bookmark_outline,
+                    ),
                   SizedBox(
                     height: 64,
                     child: ActionChip(
@@ -430,7 +435,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
         final suggestion = _suggestions[index];
         return ListTile(
           leading: Icon(
-            _showingRecents ? Icons.history : Icons.location_on_rounded,
+            _showingRecents ? Icons.history : Icons.location_on_outlined,
           ),
           onTap: () => _selectSuggestion(suggestion),
           title: Text(

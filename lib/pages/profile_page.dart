@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:para_v3/module/profile_item_section.dart';
+import 'package:para_v3/module/appbar.dart';
 import 'package:para_v3/pages/profile_page_reset_password.dart';
 import 'package:para_v3/pages/profile_page_sign_in.dart';
 import 'package:para_v3/pages/profile_page_sign_up.dart';
@@ -131,7 +132,7 @@ class _ProfilePageState extends State<ProfilePage> {
       ];
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: const ParaAppBar(title: 'Profile'),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:para_v3/module/appbar.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
 import 'package:para_v3/services/recents_service.dart';
@@ -77,12 +78,10 @@ class _SavedPlacePageState extends State<SavedPlacePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          widget.initialLabel.isEmpty
-              ? 'Add saved place'
-              : 'Save ${widget.initialLabel}',
-        ),
+      appBar: ParaAppBar(
+        title: widget.initialLabel.isEmpty
+            ? 'Add saved place'
+            : 'Save ${widget.initialLabel}',
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),

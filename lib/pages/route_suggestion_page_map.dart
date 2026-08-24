@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:para_v3/module/appbar.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/drag_scroll_sheet.dart';
 import 'package:para_v3/module/universal_map_tile.dart';
@@ -77,7 +78,7 @@ class _RouteSuggestionPageMapState extends State<RouteSuggestionPageMap> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Set Route Endpoints')),
+      appBar: const ParaAppBar(title: 'Set Route Endpoints'),
       body: Stack(
         children: [
           UniversalMapTile(onCameraChanged: _onCameraChanged),

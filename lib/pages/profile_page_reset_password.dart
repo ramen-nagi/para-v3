@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:para_v3/module/appbar.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ProfilePageResetPassword extends StatefulWidget {
@@ -23,8 +24,9 @@ class _ProfilePageResetPasswordState extends State<ProfilePageResetPassword> {
     _subscription = Supabase.instance.client.auth.onAuthStateChange.listen((
       data,
     ) {
-      if (data.event == AuthChangeEvent.passwordRecovery && mounted)
+      if (data.event == AuthChangeEvent.passwordRecovery && mounted) {
         setState(() => _recovery = true);
+      }
     });
   }
 
@@ -72,16 +74,17 @@ class _ProfilePageResetPasswordState extends State<ProfilePageResetPassword> {
   }
 
   void _show(String message) {
-    if (mounted)
+    if (mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(_recovery ? 'Set new password' : 'Reset password'),
+    appBar: ParaAppBar(
+      title: _recovery ? 'Set new password' : 'Reset password',
     ),
     body: ListView(
       padding: const EdgeInsets.all(16),

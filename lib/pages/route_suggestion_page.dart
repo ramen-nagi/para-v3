@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:para_v3/module/appbar.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/pages/route_suggestion_page_map.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -107,7 +108,7 @@ class _RouteSuggestionPageState extends State<RouteSuggestionPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Suggest a Route')),
+      appBar: const ParaAppBar(title: 'Suggest a Route'),
       body: Form(
         key: _formKey,
         child: ListView(

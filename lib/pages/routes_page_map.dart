@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:para_v3/module/appbar.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/drag_scroll_sheet.dart';
 import 'package:para_v3/module/route_suggestion_button.dart';
@@ -212,9 +213,7 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.route.routeLongName),
-      ),
+      appBar: ParaAppBar(title: widget.route.routeLongName),
       body: Stack(
         children: [
           UniversalMapTile(

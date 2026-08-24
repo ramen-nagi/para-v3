@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:para_v3/module/appbar.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'profile_page_reset_password.dart';
 import 'profile_page_sign_up.dart';
@@ -46,7 +47,7 @@ class _ProfilePageSignInState extends State<ProfilePageSignIn> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Sign in')),
+    appBar: const ParaAppBar(title: 'Sign in'),
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [

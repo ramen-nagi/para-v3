@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:para_v3/module/appbar.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ProfilePageSignUp extends StatefulWidget {
@@ -58,7 +59,7 @@ class _ProfilePageSignUpState extends State<ProfilePageSignUp> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Create account')),
+    appBar: const ParaAppBar(title: 'Create account'),
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [

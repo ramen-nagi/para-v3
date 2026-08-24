@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:para_v3/module/appbar.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'routes_page_map.dart';
 
@@ -178,13 +179,12 @@ class _RoutesPageState extends State<RoutesPage> {
     final visibleRoutes = allCategoryRoutes.take(_displayedCount).toList();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Routes'),
-      ),
+      appBar: const ParaAppBar(title: 'Routes'),
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
         child: Column(
           children: [
+            SizedBox(height: 8),
             SearchAnchor.bar(
               searchController: _searchController,
               barHintText: 'Search routes',
@@ -222,11 +222,11 @@ class _RoutesPageState extends State<RoutesPage> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  _buildTabItem(VehicleType.bus, Icons.directions_bus),
-                  _buildTabItem(VehicleType.jeep, Icons.airport_shuttle),
-                  _buildTabItem(VehicleType.train, Icons.train),
-                  _buildTabItem(VehicleType.tricycle, Icons.pedal_bike),
-                  _buildTabItem(VehicleType.uvExpress, Icons.directions_car),
+                  _buildTabItem(VehicleType.bus, 'Bus'),
+                  _buildTabItem(VehicleType.jeep, 'Jeep'),
+                  _buildTabItem(VehicleType.train, 'Train'),
+                  _buildTabItem(VehicleType.tricycle, 'Tricycle'),
+                  _buildTabItem(VehicleType.uvExpress, 'UV Express'),
                 ],
               ),
             ),
@@ -246,7 +246,7 @@ class _RoutesPageState extends State<RoutesPage> {
     );
   }
 
-  Widget _buildTabItem(VehicleType type, IconData icon) {
+  Widget _buildTabItem(VehicleType type, String label) {
     final isSelected = _selectedType == type;
 
     return InkWell(
@@ -263,15 +263,12 @@ class _RoutesPageState extends State<RoutesPage> {
             ),
           ),
         ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              size: 18,
-              color: isSelected ? Theme.of(context).primaryColor : Colors.grey,
-            ),
-            const SizedBox(width: 6),
-          ],
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Theme.of(context).primaryColor : Colors.grey,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          ),
         ),
       ),
     );

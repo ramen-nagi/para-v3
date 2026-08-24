@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:para_v3/module/appbar.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 enum ReportCategory {
@@ -141,7 +142,7 @@ class _ReportsPageState extends State<ReportsPage> {
   Widget build(BuildContext context) {
     final fare = _category == ReportCategory.fareDiscrepancy;
     return Scaffold(
-      appBar: AppBar(title: const Text('Submit a Report')),
+      appBar: const ParaAppBar(title: 'Submit a Report'),
       body: Form(
         key: _formKey,
         child: ListView(padding: const EdgeInsets.all(16), children: [
