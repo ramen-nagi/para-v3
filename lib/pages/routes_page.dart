@@ -1,9 +1,16 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:para_v3/module/appbar.dart';
+import 'package:para_v3/module/universal_alert_dialog.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
+import 'package:para_v3/services/recents_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:para_v3/pages/profile_page_sign_in.dart';
+import 'package:para_v3/pages/profile_page_sign_up.dart';
 import 'routes_page_map.dart';
 
 IconData getIconForType(VehicleType type) {
+  // TODO: Make custom SVG for each vehicle type
   switch (type) {
     case VehicleType.bus:
       return Icons.directions_bus;
@@ -27,11 +34,34 @@ class RoutesPage extends StatefulWidget {
   State<RoutesPage> createState() => _RoutesPageState();
 }
 
+enum _RouteTab { favorites, bus, jeep, train, tricycle, uvExpress }
+
+extension on _RouteTab {
+  VehicleType? get vehicleType {
+    switch (this) {
+      case _RouteTab.favorites:
+        return null;
+      case _RouteTab.bus:
+        return VehicleType.bus;
+      case _RouteTab.jeep:
+        return VehicleType.jeep;
+      case _RouteTab.train:
+        return VehicleType.train;
+      case _RouteTab.tricycle:
+        return VehicleType.tricycle;
+      case _RouteTab.uvExpress:
+        return VehicleType.uvExpress;
+    }
+  }
+}
+
 class _RoutesPageState extends State<RoutesPage> {
   final SearchController _searchController = SearchController();
   final ScrollController _scrollController = ScrollController();
 
-  VehicleType _selectedType = VehicleType.bus;
+  _RouteTab _selectedTab = _RouteTab.bus;
+  final Set<String> _favoriteRouteIds = <String>{};
+  StreamSubscription<AuthState>? _authSubscription;
 
   static const int _pageSize = 10;
   int _displayedCount = _pageSize;
@@ -39,8 +69,30 @@ class _RoutesPageState extends State<RoutesPage> {
   @override
   void initState() {
     super.initState();
+    _loadFavoriteRoutes();
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen(
+      (data) {
+        if (!mounted) return;
+        if (data.session == null) {
+          setState(() => _favoriteRouteIds.clear());
+        } else {
+          _loadFavoriteRoutes();
+        }
+      },
+    );
     GtfsNetworkService.instance.addListener(_onServiceUpdate);
     _scrollController.addListener(_onScroll);
+  }
+
+  Future<void> _loadFavoriteRoutes() async {
+    if (Supabase.instance.client.auth.currentUser == null) return;
+    final favoriteIds = await RecentsService.instance.getFavoriteRouteIds();
+    if (!mounted) return;
+    setState(() {
+      _favoriteRouteIds
+        ..clear()
+        ..addAll(favoriteIds);
+    });
   }
 
   @override
@@ -49,6 +101,7 @@ class _RoutesPageState extends State<RoutesPage> {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _searchController.dispose();
+    _authSubscription?.cancel();
     super.dispose();
   }
 
@@ -74,7 +127,19 @@ class _RoutesPageState extends State<RoutesPage> {
 
   List<RoutesModel> _getFilteredRoutes() {
     final allRoutes = GtfsNetworkService.instance.routesMap.values.toList();
-    return allRoutes.where((r) => r.vehicleType == _selectedType).toList();
+    final filtered = _selectedTab == _RouteTab.favorites
+        ? allRoutes.where((route) => _favoriteRouteIds.contains(route.routeId))
+        : allRoutes.where((route) => route.vehicleType == _selectedTab.vehicleType);
+    final routes = filtered.toList();
+    if (_selectedTab == _RouteTab.favorites) return routes;
+
+    final favoriteRoutes = routes
+        .where((route) => _favoriteRouteIds.contains(route.routeId))
+        .toList();
+    final otherRoutes = routes
+        .where((route) => !_favoriteRouteIds.contains(route.routeId))
+        .toList();
+    return [...favoriteRoutes, ...otherRoutes];
   }
 
   List<RoutesModel> _getRouteSuggestions(String query) {
@@ -96,16 +161,48 @@ class _RoutesPageState extends State<RoutesPage> {
     }).toList();
   }
 
-  void _onTabChanged(VehicleType newType) {
-    if (_selectedType != newType) {
+  void _onTabChanged(_RouteTab newTab) {
+    if (_selectedTab != newTab) {
       setState(() {
-        _selectedType = newType;
+        _selectedTab = newTab;
         _displayedCount = _pageSize;
       });
       if (_scrollController.hasClients) {
         _scrollController.jumpTo(0);
       }
     }
+  }
+
+  Future<void> _toggleFavorite(RoutesModel route) async {
+    if (Supabase.instance.client.auth.currentUser == null) {
+      await _showAuthenticationPrompt();
+      return;
+    }
+    final isFavorite = !_favoriteRouteIds.contains(route.routeId);
+    setState(() {
+      if (isFavorite) {
+        _favoriteRouteIds.add(route.routeId);
+      } else {
+        _favoriteRouteIds.remove(route.routeId);
+      }
+    });
+    await RecentsService.instance.setFavoriteRoute(route.routeId, isFavorite);
+  }
+
+  Future<void> _showAuthenticationPrompt() async {
+    await UniversalAlertDialog.show(
+      context: context,
+      title: 'Sign in to save routes',
+      content: 'Create an account or sign in to favorite routes and access them later.',
+      secondaryButtonText: 'Sign in',
+      onSecondaryPressed: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ProfilePageSignIn()),
+      ),
+      primaryButtonText: 'Create account',
+      onPrimaryPressed: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ProfilePageSignUp()),
+      ),
+    );
   }
 
   Widget _buildRouteTile(RoutesModel route) {
@@ -116,6 +213,17 @@ class _RoutesPageState extends State<RoutesPage> {
         title: Text(route.routeLongName),
         subtitle: Text(
           '${route.trips.length} direction trips',
+        ),
+        trailing: IconButton(
+          icon: Icon(
+            _favoriteRouteIds.contains(route.routeId)
+                ? Icons.favorite
+                : Icons.favorite_border,
+            color: _favoriteRouteIds.contains(route.routeId)
+                ? Colors.red
+                : null,
+          ),
+          onPressed: () => _toggleFavorite(route),
         ),
         onTap: () {
           if (_searchController.isOpen) {
@@ -142,9 +250,10 @@ class _RoutesPageState extends State<RoutesPage> {
     }
 
     if (allCategoryRoutes.isEmpty) {
-      return const Center(
-        child: Text('No routes available for this mode.'),
-      );
+      final message = _selectedTab == _RouteTab.favorites
+          ? 'No favorite routes yet.'
+          : 'No routes available for this mode.';
+      return Center(child: Text(message));
     }
 
     final bool hasMoreItems = _displayedCount < allCategoryRoutes.length;
@@ -222,11 +331,12 @@ class _RoutesPageState extends State<RoutesPage> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  _buildTabItem(VehicleType.bus, 'Bus'),
-                  _buildTabItem(VehicleType.jeep, 'Jeep'),
-                  _buildTabItem(VehicleType.train, 'Train'),
-                  _buildTabItem(VehicleType.tricycle, 'Tricycle'),
-                  _buildTabItem(VehicleType.uvExpress, 'UV Express'),
+                  _buildTabItem(_RouteTab.favorites, 'Favorites'),
+                  _buildTabItem(_RouteTab.bus, 'Bus'),
+                  _buildTabItem(_RouteTab.jeep, 'Jeep'),
+                  _buildTabItem(_RouteTab.train, 'Train'),
+                  _buildTabItem(_RouteTab.tricycle, 'Tricycle'),
+                  _buildTabItem(_RouteTab.uvExpress, 'UV Express'),
                 ],
               ),
             ),
@@ -246,11 +356,11 @@ class _RoutesPageState extends State<RoutesPage> {
     );
   }
 
-  Widget _buildTabItem(VehicleType type, String label) {
-    final isSelected = _selectedType == type;
+  Widget _buildTabItem(_RouteTab tab, String label) {
+    final isSelected = _selectedTab == tab;
 
     return InkWell(
-      onTap: () => _onTabChanged(type),
+      onTap: () => _onTabChanged(tab),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(

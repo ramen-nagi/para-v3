@@ -4,9 +4,13 @@ import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/location_textfield.dart';
 import 'package:para_v3/module/appbar.dart';
+import 'package:para_v3/module/universal_alert_dialog.dart';
 import 'package:para_v3/pages/saved_place_page.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
 import 'package:para_v3/services/recents_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:para_v3/pages/profile_page_sign_in.dart';
+import 'package:para_v3/pages/profile_page_sign_up.dart';
 
 enum CommuteInputField { origin, destination }
 
@@ -69,6 +73,10 @@ class _CommutePageInputState extends State<CommutePageInput> {
   }
 
   Future<void> _loadSavedPlaces() async {
+    if (Supabase.instance.client.auth.currentUser == null) {
+      if (mounted) setState(() => _savedPlaces = []);
+      return;
+    }
     final places = await RecentsService.instance.getSavedPlaces();
     if (mounted) setState(() => _savedPlaces = places);
   }
@@ -81,6 +89,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
   }
 
   Future<void> _openSavePlace(String key, String label) async {
+    if (!await _requireAuthentication()) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SavedPlacePage(saveKey: key, initialLabel: label),
@@ -90,6 +99,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
   }
 
   Future<void> _handleSavedPlace(String key, String label) async {
+    if (!await _requireAuthentication()) return;
     final place = _savedPlace(key);
     if (place == null) {
       await _openSavePlace(key, label);
@@ -123,6 +133,25 @@ class _CommutePageInputState extends State<CommutePageInput> {
       'custom_${DateTime.now().microsecondsSinceEpoch}',
       '',
     );
+  }
+
+  Future<bool> _requireAuthentication() async {
+    if (Supabase.instance.client.auth.currentUser != null) return true;
+
+    await UniversalAlertDialog.show(
+      context: context,
+      title: 'Sign in to save places',
+      content: 'Create an account or sign in to save Home, School, Work, and custom places.',
+      secondaryButtonText: 'Sign in',
+      onSecondaryPressed: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ProfilePageSignIn()),
+      ),
+      primaryButtonText: 'Create account',
+      onPrimaryPressed: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ProfilePageSignUp()),
+      ),
+    );
+    return false;
   }
 
   @override

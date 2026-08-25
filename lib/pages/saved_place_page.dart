@@ -3,6 +3,7 @@ import 'package:para_v3/module/appbar.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
 import 'package:para_v3/services/recents_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SavedPlacePage extends StatefulWidget {
   final String saveKey;
@@ -57,6 +58,12 @@ class _SavedPlacePageState extends State<SavedPlacePage> {
   }
 
   Future<void> _save() async {
+    if (Supabase.instance.client.auth.currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign in to save places.')),
+      );
+      return;
+    }
     final suggestion = _selectedSuggestion;
     final position = _selectedPosition;
     final label = _labelController.text.trim();

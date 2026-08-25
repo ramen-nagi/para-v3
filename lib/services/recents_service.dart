@@ -28,6 +28,36 @@ class RecentsService {
   static const _databaseName = 'user_info.sqlite';
   static const _tableName = 'recent_address';
   static const _savedTableName = 'saved_place';
+  static const _favoriteRouteTableName = 'favorite_route';
+
+  Future<Set<String>> getFavoriteRouteIds() async {
+    final db = await _openDatabase();
+    try {
+      final rows = db.select('SELECT route_id FROM $_favoriteRouteTableName');
+      return rows.map((row) => row['route_id'] as String).toSet();
+    } finally {
+      db.dispose();
+    }
+  }
+
+  Future<void> setFavoriteRoute(String routeId, bool favorite) async {
+    final db = await _openDatabase();
+    try {
+      if (favorite) {
+        db.execute(
+          'INSERT OR IGNORE INTO $_favoriteRouteTableName (route_id) VALUES (?)',
+          [routeId],
+        );
+      } else {
+        db.execute(
+          'DELETE FROM $_favoriteRouteTableName WHERE route_id = ?',
+          [routeId],
+        );
+      }
+    } finally {
+      db.dispose();
+    }
+  }
 
   Future<List<SavedPlace>> getSavedPlaces() async {
     final db = await _openDatabase();
@@ -179,6 +209,12 @@ class RecentsService {
         latitude REAL NOT NULL,
         longitude REAL NOT NULL,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    ''');
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS $_favoriteRouteTableName (
+        route_id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     ''');
     return db;
