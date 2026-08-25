@@ -167,7 +167,7 @@ class _ProfilePageState extends State<ProfilePage> {
             title: 'App Preferences',
             items: [
               ProfileTabs(
-                icon: Icons.palette_outlined,
+                icon: Icons.dark_mode_outlined,
                 label: 'Dark Mode',
                 onTap: _comingSoon,
                 // TODO: add trailing switch to use dark mode

@@ -25,6 +25,7 @@ class UniversalMapTile extends StatefulWidget {
 
 class _UniversalMapTileState extends State<UniversalMapTile> {
   static const _maxVisibleSheetExtent = 0.221;
+  static const _mapButtonStackHeight = 104.0;
   static const _trafficSourceId = 'mapbox-traffic-source';
   static const _trafficLayerId = 'mapbox-traffic-layer';
 
@@ -60,14 +61,25 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
   Future<void> _updateMapOrnamentMargins() async {
     final map = _mapboxMap;
     final sheetExtent = DragScrollSheet.sheetExtent.value;
-    if (map == null || sheetExtent > _maxVisibleSheetExtent || !mounted) {
+    if (map == null || !mounted) {
       return;
     }
 
-    final bottomMargin = MediaQuery.sizeOf(context).height * sheetExtent + 8.0;
+    final cappedSheetExtent = widget.isStartingCommute
+        ? _maxVisibleSheetExtent
+        : sheetExtent.clamp(0.0, _maxVisibleSheetExtent).toDouble();
+    final bottomMargin = MediaQuery.sizeOf(context).height * cappedSheetExtent + 8.0;
     await map.logo.updateSettings(LogoSettings(marginBottom: bottomMargin));
     await map.attribution.updateSettings(
       AttributionSettings(marginBottom: bottomMargin),
+    );
+    await map.compass.updateSettings(
+      CompassSettings(
+        enabled: true,
+        position: OrnamentPosition.BOTTOM_RIGHT,
+        marginBottom: bottomMargin + _mapButtonStackHeight + 8.0,
+        marginRight: 16.0,
+      ),
     );
   }
 
