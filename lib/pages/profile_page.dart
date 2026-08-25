@@ -107,6 +107,35 @@ class _ProfilePageState extends State<ProfilePage> {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
   }
 
+  Future<void> _verifyCurrentPasswordAndChange() async {
+    final user = _user;
+    if (user?.email == null) return;
+
+    final currentPassword = await showDialog<String>(
+      context: context,
+      builder: (_) => const _CurrentPasswordDialog(),
+    );
+    if (!mounted || currentPassword == null || currentPassword.isEmpty) return;
+
+    try {
+      await Supabase.instance.client.auth.signInWithPassword(
+        email: user!.email!,
+        password: currentPassword,
+      );
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _open(const ProfilePageResetPassword(changePasswordOnly: true));
+        }
+      });
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Password verification failed: ${error.message}')),
+      );
+    }
+  }
+
   Widget _buildGuestAuthPrompt() {
     final theme = Theme.of(context);
     return Card(
@@ -235,21 +264,25 @@ class _ProfilePageState extends State<ProfilePage> {
       title: 'About Para',
       items: [
         ProfileTabs(
+          // TODO: Add contents here using UniversalAlertDialog
           icon: Icons.privacy_tip_outlined,
           label: 'Privacy Policy',
           onTap: _comingSoon,
         ),
         ProfileTabs(
+          // TODO: Add contents here using UniversalAlertDialog
           icon: Icons.description_outlined,
           label: 'Terms of Service',
           onTap: _comingSoon,
         ),
         ProfileTabs(
+          // TODO: Add contents here using UniversalAlertDialog
           icon: Icons.help_outline,
           label: 'Help and Support',
           onTap: _comingSoon,
         ),
         ProfileTabs(
+          // TODO: Add contents here using UniversalAlertDialog
           icon: Icons.auto_stories_outlined,
           label: 'Para Lore',
           onTap: _comingSoon,
@@ -328,7 +361,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ProfileTabs(
             icon: Icons.lock_reset,
             label: 'Change Password',
-            onTap: () => _open(const ProfilePageResetPassword()),
+            onTap: _verifyCurrentPasswordAndChange,
           ),
           ProfileTabs(
             icon: Icons.delete_outline,
@@ -409,6 +442,49 @@ class _ProfilePageState extends State<ProfilePage> {
         padding: const EdgeInsets.all(16),
         children: content,
       ),
+    );
+  }
+}
+
+class _CurrentPasswordDialog extends StatefulWidget {
+  const _CurrentPasswordDialog();
+
+  @override
+  State<_CurrentPasswordDialog> createState() => _CurrentPasswordDialogState();
+}
+
+class _CurrentPasswordDialogState extends State<_CurrentPasswordDialog> {
+  final _passwordController = TextEditingController();
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Verify your password'),
+      content: TextField(
+        controller: _passwordController,
+        obscureText: true,
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Current password',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_passwordController.text),
+          child: const Text('Continue'),
+        ),
+      ],
     );
   }
 }

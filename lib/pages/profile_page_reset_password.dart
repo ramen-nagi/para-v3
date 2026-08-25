@@ -4,7 +4,12 @@ import 'package:para_v3/module/appbar.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ProfilePageResetPassword extends StatefulWidget {
-  const ProfilePageResetPassword({super.key});
+  final bool changePasswordOnly;
+
+  const ProfilePageResetPassword({
+    super.key,
+    this.changePasswordOnly = false,
+  });
   @override
   State<ProfilePageResetPassword> createState() =>
       _ProfilePageResetPasswordState();
@@ -21,6 +26,7 @@ class _ProfilePageResetPasswordState extends State<ProfilePageResetPassword> {
   @override
   void initState() {
     super.initState();
+    _recovery = widget.changePasswordOnly;
     _subscription = Supabase.instance.client.auth.onAuthStateChange.listen((
       data,
     ) {
@@ -65,7 +71,13 @@ class _ProfilePageResetPasswordState extends State<ProfilePageResetPassword> {
       await Supabase.instance.client.auth.updateUser(
         UserAttributes(password: _password.text),
       );
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password updated successfully.')),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        if (mounted) Navigator.pop(context);
+      }
     } on AuthException catch (error) {
       _show(error.message);
     } finally {
@@ -84,7 +96,9 @@ class _ProfilePageResetPasswordState extends State<ProfilePageResetPassword> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: ParaAppBar(
-      title: _recovery ? 'Set new password' : 'Reset password',
+      title: _recovery
+          ? (widget.changePasswordOnly ? 'Change password' : 'Set new password')
+          : 'Reset password',
     ),
     body: ListView(
       padding: const EdgeInsets.all(16),
