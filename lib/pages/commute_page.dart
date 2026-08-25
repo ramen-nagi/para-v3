@@ -89,7 +89,7 @@ class _CommutePageState extends State<CommutePage> {
       originLng: origin.lng.toDouble(),
       destLat: destination.lat.toDouble(),
       destLng: destination.lng.toDouble(),
-      excludedVehicleTypes: preferences.excludedVehicleTypes,
+      penalizedVehicleTypes: preferences.penalizedVehicleTypes,
     );
 
     for (final journey in journeys) {
@@ -847,6 +847,7 @@ class _CommutePageState extends State<CommutePage> {
               originController: _originController,
               destinationController: _destinationController,
               readOnly: true,
+              showClearButton: false,
               onOriginTap: () => _openInputPage(CommuteInputField.origin),
               onDestinationTap: () =>
                   _openInputPage(CommuteInputField.destination),

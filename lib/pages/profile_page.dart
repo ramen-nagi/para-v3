@@ -23,11 +23,11 @@ class _ProfilePageState extends State<ProfilePage> {
   User? _user;
   bool _isDiscounted = false;
   bool _isDarkMode = false;
-  bool _includeTricycle = true;
-  bool _includeTrain = true;
-  bool _includeJeep = true;
-  bool _includeBus = true;
-  bool _includeUvExpress = true;
+  bool _isPenalizeTricycle = false;
+  bool _isPenalizeTrain = false;
+  bool _isPenalizeJeep = false;
+  bool _isPenalizeBus = false;
+  bool _isPenalizeUvExpress = false;
 
   @override
   void initState() {
@@ -54,41 +54,41 @@ class _ProfilePageState extends State<ProfilePage> {
     await preferences.initialize();
     if (!mounted) return;
     setState(() {
-      _includeTricycle = preferences.isEnabled(VehicleType.tricycle);
-      _includeTrain = preferences.isEnabled(VehicleType.train);
-      _includeJeep = preferences.isEnabled(VehicleType.jeep);
-      _includeBus = preferences.isEnabled(VehicleType.bus);
-      _includeUvExpress = preferences.isEnabled(VehicleType.uvExpress);
+      _isPenalizeTricycle = preferences.isPenalized(VehicleType.tricycle);
+      _isPenalizeTrain = preferences.isPenalized(VehicleType.train);
+      _isPenalizeJeep = preferences.isPenalized(VehicleType.jeep);
+      _isPenalizeBus = preferences.isPenalized(VehicleType.bus);
+      _isPenalizeUvExpress = preferences.isPenalized(VehicleType.uvExpress);
     });
   }
 
   Future<void> _setVehiclePreference(
     VehicleType type,
-    bool enabled,
+    bool penalized,
   ) async {
     setState(() {
       switch (type) {
         case VehicleType.tricycle:
-          _includeTricycle = enabled;
+          _isPenalizeTricycle = penalized;
           break;
         case VehicleType.train:
-          _includeTrain = enabled;
+          _isPenalizeTrain = penalized;
           break;
         case VehicleType.jeep:
-          _includeJeep = enabled;
+          _isPenalizeJeep = penalized;
           break;
         case VehicleType.bus:
-          _includeBus = enabled;
+          _isPenalizeBus = penalized;
           break;
         case VehicleType.uvExpress:
-          _includeUvExpress = enabled;
+          _isPenalizeUvExpress = penalized;
           break;
         case VehicleType.unknown:
         case VehicleType.walk:
           break;
       }
     });
-    await CommutePreferencesService.instance.setEnabled(type, enabled);
+    await CommutePreferencesService.instance.setPenalized(type, penalized);
   }
 
   @override
@@ -198,32 +198,32 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         _buildSwitchTab(
           icon: Icons.pedal_bike,
-          label: 'Tricycle',
-          value: _includeTricycle,
+          label: 'Avoid Tricycle',
+          value: _isPenalizeTricycle,
           onChanged: (value) => _setVehiclePreference(VehicleType.tricycle, value),
         ),
         _buildSwitchTab(
           icon: Icons.train,
-          label: 'Train',
-          value: _includeTrain,
+          label: 'Avoid Train',
+          value: _isPenalizeTrain,
           onChanged: (value) => _setVehiclePreference(VehicleType.train, value),
         ),
         _buildSwitchTab(
           icon: Icons.airport_shuttle,
-          label: 'Jeep',
-          value: _includeJeep,
+          label: 'Avoid Jeep',
+          value: _isPenalizeJeep,
           onChanged: (value) => _setVehiclePreference(VehicleType.jeep, value),
         ),
         _buildSwitchTab(
           icon: Icons.directions_bus,
-          label: 'Bus',
-          value: _includeBus,
+          label: 'Avoid Bus',
+          value: _isPenalizeBus,
           onChanged: (value) => _setVehiclePreference(VehicleType.bus, value),
         ),
         _buildSwitchTab(
           icon: Icons.directions_car,
-          label: 'UV Express',
-          value: _includeUvExpress,
+          label: 'Avoid UV Express',
+          value: _isPenalizeUvExpress,
           onChanged: (value) => _setVehiclePreference(VehicleType.uvExpress, value),
         ),
       ],

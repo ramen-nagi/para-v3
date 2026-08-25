@@ -143,7 +143,7 @@ class RaptorPathfindingService {
     required double originLng,
     required double destLat,
     required double destLng,
-    Set<VehicleType> excludedVehicleTypes = const {},
+    Set<VehicleType> penalizedVehicleTypes = const {},
   }) {
     if (!GtfsNetworkService.instance.isLoaded) {
       debugPrint('RAPTOR Error: GTFS dataset not loaded yet.');
@@ -157,7 +157,6 @@ class RaptorPathfindingService {
     final Set<String> seenSequences = {};
 
     for (final route in GtfsNetworkService.instance.routesMap.values) {
-      if (excludedVehicleTypes.contains(route.vehicleType)) continue;
       for (final trip in route.trips) {
         final sortedStops = List<StopsAndStopTimesModel>.from(trip.stopTimes)
           ..sort((a, b) => a.stopSequence.compareTo(b.stopSequence));
@@ -387,8 +386,11 @@ class RaptorPathfindingService {
                 ? (_transitCostWeight / _trainCostDivisor)
                 : _transitCostWeight;
 
-            final arrivalCost =
-                costAtBoarding + (transitDist * effectiveWeight);
+            var transitCost = transitDist * effectiveWeight;
+            if (penalizedVehicleTypes.contains(rr?.vehicleType)) {
+              transitCost *= 1.3;
+            }
+            final arrivalCost = costAtBoarding + transitCost;
 
             if (arrivalCost < bestCostOverall[stopId]!) {
               bestCostOverall[stopId] = arrivalCost;

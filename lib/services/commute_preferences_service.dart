@@ -6,13 +6,13 @@ class CommutePreferencesService {
       CommutePreferencesService._();
   CommutePreferencesService._();
 
-  static const _prefix = 'commute_mode_enabled_';
-  final Map<VehicleType, bool> _enabled = {
-    VehicleType.tricycle: true,
-    VehicleType.train: true,
-    VehicleType.jeep: true,
-    VehicleType.bus: true,
-    VehicleType.uvExpress: true,
+  static const _prefix = 'commute_mode_penalize_';
+  final Map<VehicleType, bool> _penalized = {
+    VehicleType.tricycle: false,
+    VehicleType.train: false,
+    VehicleType.jeep: false,
+    VehicleType.bus: false,
+    VehicleType.uvExpress: false,
   };
   Future<void>? _initialization;
 
@@ -20,23 +20,23 @@ class CommutePreferencesService {
 
   Future<void> _loadPreferences() async {
     final preferences = await SharedPreferences.getInstance();
-    for (final type in _enabled.keys) {
-      _enabled[type] = preferences.getBool(_key(type)) ?? true;
+    for (final type in _penalized.keys) {
+      _penalized[type] = preferences.getBool(_key(type)) ?? false;
     }
   }
 
-  bool isEnabled(VehicleType type) => _enabled[type] ?? true;
+  bool isPenalized(VehicleType type) => _penalized[type] ?? false;
 
-  Set<VehicleType> get excludedVehicleTypes => _enabled.entries
-      .where((entry) => !entry.value)
+  Set<VehicleType> get penalizedVehicleTypes => _penalized.entries
+      .where((entry) => entry.value)
       .map((entry) => entry.key)
       .toSet();
 
-  Future<void> setEnabled(VehicleType type, bool enabled) async {
-    if (!_enabled.containsKey(type)) return;
-    _enabled[type] = enabled;
+  Future<void> setPenalized(VehicleType type, bool penalized) async {
+    if (!_penalized.containsKey(type)) return;
+    _penalized[type] = penalized;
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setBool(_key(type), enabled);
+    await preferences.setBool(_key(type), penalized);
   }
 
   String _key(VehicleType type) => '$_prefix${type.name}';

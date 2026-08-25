@@ -12,6 +12,7 @@ class LocationTextfield extends StatelessWidget {
   final ValueChanged<String>? onDestinationChanged;
   final VoidCallback? onSwap;
   final bool readOnly;
+  final bool showClearButton;
   final bool showTrailingActions;
 
   const LocationTextfield({
@@ -26,6 +27,7 @@ class LocationTextfield extends StatelessWidget {
     this.onDestinationChanged,
     this.onSwap,
     this.readOnly = false,
+    this.showClearButton = true,
     this.showTrailingActions = false,
   });
 
@@ -82,7 +84,7 @@ class LocationTextfield extends StatelessWidget {
                     minHeight: 40,
                     maxHeight: 40,
                   ),
-                  suffixIcon: value.text.isEmpty
+                  suffixIcon: value.text.isEmpty || !showClearButton
                       ? null
                       : IconButton(
                           tooltip: 'Clear $hintText',

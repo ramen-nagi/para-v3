@@ -53,12 +53,20 @@ class _CommutePageInputState extends State<CommutePageInput> {
   Position? _originPosition;
   Position? _destinationPosition;
   List<SavedPlace> _savedPlaces = [];
+  late final String _initialOriginText;
+  late final String _initialDestinationText;
+  late final Position? _initialOriginPosition;
+  late final Position? _initialDestinationPosition;
 
   @override
   void initState() {
     super.initState();
     _originPosition = widget.originPosition;
     _destinationPosition = widget.destinationPosition;
+    _initialOriginText = widget.originController.text;
+    _initialDestinationText = widget.destinationController.text;
+    _initialOriginPosition = widget.originPosition;
+    _initialDestinationPosition = widget.destinationPosition;
     _originFocusNode.addListener(_onOriginFocusChanged);
     _destinationFocusNode.addListener(_onDestinationFocusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -364,10 +372,26 @@ class _CommutePageInputState extends State<CommutePageInput> {
     }
   }
 
+  bool _samePosition(Position? first, Position? second) {
+    if (first == null || second == null) return first == null && second == null;
+    return first.lat == second.lat && first.lng == second.lng;
+  }
+
+  bool _hasInputChanged() {
+    return widget.originController.text != _initialOriginText ||
+        widget.destinationController.text != _initialDestinationText ||
+        !_samePosition(_originPosition, _initialOriginPosition) ||
+        !_samePosition(_destinationPosition, _initialDestinationPosition);
+  }
+
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: () async {
+        if (!_hasInputChanged()) {
+          Navigator.of(context).pop();
+          return false;
+        }
         Navigator.of(context).pop(
           CommuteInputResult(
             originPosition: _originPosition,
