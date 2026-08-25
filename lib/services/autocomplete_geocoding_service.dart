@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class PlaceSuggestion {
   final String placeId;
@@ -33,24 +34,68 @@ class PlaceSuggestion {
 
 class AutocompleteGeocodingService {
   static const _maxResults = 5;
+  static const _guestDailyLimit = 25;
+  static const _guestRequestCountKey = 'guest_autocomplete_request_count';
+  static const _guestRequestDateKey = 'guest_autocomplete_request_date';
   static final _metroManilaRegex = RegExp('Metro Manila', caseSensitive: false);
   final apiKey = dotenv.env['MAPS_PLATFORM_KEY']!;
 
   Timer? _debounce;
   Completer<List<PlaceSuggestion>>? _pendingSuggestions;
   String? _sessionToken;
+  bool _quotaExceeded = false;
 
-  Future<List<PlaceSuggestion>> getDebouncedSuggestions(String query) {
+  bool get quotaExceeded => _quotaExceeded;
+
+  Future<List<PlaceSuggestion>> getDebouncedSuggestions(
+    String query, {
+    required bool isAuthenticated,
+  }) {
     cancelPendingSuggestions();
     if (query.trim().isEmpty) return Future.value(<PlaceSuggestion>[]);
 
     final completer = Completer<List<PlaceSuggestion>>();
     _pendingSuggestions = completer;
     _debounce = Timer(const Duration(milliseconds: 500), () async {
+      final canRequest = await _consumeGuestQuota(isAuthenticated);
+      if (!canRequest) {
+        if (!completer.isCompleted) completer.complete(<PlaceSuggestion>[]);
+        return;
+      }
       final suggestions = await fetchAutocompleteSuggestions(query);
       if (!completer.isCompleted) completer.complete(suggestions);
     });
     return completer.future;
+  }
+
+  Future<bool> _consumeGuestQuota(bool isAuthenticated) async {
+    _quotaExceeded = false;
+    if (isAuthenticated) return true;
+
+    final preferences = await SharedPreferences.getInstance();
+    final today = _localDateKey(DateTime.now());
+    final storedDate = preferences.getString(_guestRequestDateKey);
+    var requestCount = preferences.getInt(_guestRequestCountKey) ?? 0;
+
+    if (storedDate != today) {
+      requestCount = 0;
+      await preferences.setString(_guestRequestDateKey, today);
+      await preferences.setInt(_guestRequestCountKey, 0);
+    }
+
+    if (requestCount >= _guestDailyLimit) {
+      _quotaExceeded = true;
+      return false;
+    }
+
+    await preferences.setInt(_guestRequestCountKey, requestCount + 1);
+    return true;
+  }
+
+  String _localDateKey(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
   }
 
   void cancelPendingSuggestions() {

@@ -4,13 +4,11 @@ import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/location_textfield.dart';
 import 'package:para_v3/module/appbar.dart';
-import 'package:para_v3/module/universal_alert_dialog.dart';
+import 'package:para_v3/module/auth_required_dialog.dart';
 import 'package:para_v3/pages/saved_place_page.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
 import 'package:para_v3/services/recents_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:para_v3/pages/profile_page_sign_in.dart';
-import 'package:para_v3/pages/profile_page_sign_up.dart';
 
 enum CommuteInputField { origin, destination }
 
@@ -50,6 +48,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
   final _autocomplete = AutocompleteGeocodingService();
   List<PlaceSuggestion> _suggestions = [];
   bool _showingRecents = false;
+  bool _quotaPromptShown = false;
   int _suggestionRequestId = 0;
   Position? _originPosition;
   Position? _destinationPosition;
@@ -138,18 +137,10 @@ class _CommutePageInputState extends State<CommutePageInput> {
   Future<bool> _requireAuthentication() async {
     if (Supabase.instance.client.auth.currentUser != null) return true;
 
-    await UniversalAlertDialog.show(
+    await AuthRequiredDialog.show(
       context: context,
       title: 'Sign in to save places',
       content: 'Create an account or sign in to save Home, School, Work, and custom places.',
-      secondaryButtonText: 'Sign in',
-      onSecondaryPressed: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const ProfilePageSignIn()),
-      ),
-      primaryButtonText: 'Create account',
-      onPrimaryPressed: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const ProfilePageSignUp()),
-      ),
     );
     return false;
   }
@@ -166,6 +157,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
 
   Future<void> _onQueryChanged(String query) async {
     if (query.trim().isEmpty) {
+      _quotaPromptShown = false;
       if (_originFocusNode.hasFocus) {
         _originPosition = null;
       } else if (_destinationFocusNode.hasFocus) {
@@ -180,13 +172,29 @@ class _CommutePageInputState extends State<CommutePageInput> {
       _autocomplete.cancelPendingSuggestions();
       suggestions = await RecentsService.instance.getRecentSuggestions();
     } else {
-      suggestions = await _autocomplete.getDebouncedSuggestions(query);
+      suggestions = await _autocomplete.getDebouncedSuggestions(
+        query,
+        isAuthenticated: Supabase.instance.client.auth.currentUser != null,
+      );
+      if (_autocomplete.quotaExceeded && !_quotaPromptShown && mounted) {
+        _quotaPromptShown = true;
+        await _showAutocompleteQuotaPrompt();
+      }
     }
     if (!mounted || requestId != _suggestionRequestId) return;
     setState(() {
       _suggestions = suggestions;
       _showingRecents = isShowingRecents;
     });
+  }
+
+  Future<void> _showAutocompleteQuotaPrompt() {
+    return AuthRequiredDialog.show(
+      context: context,
+      title: 'Daily guest search limit reached',
+      content:
+          'Guests can make 25 autocomplete searches per day. Sign in or create an account to continue searching.',
+    );
   }
 
   Future<void> _loadRecentSuggestions() async {

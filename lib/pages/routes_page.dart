@@ -1,12 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:para_v3/module/appbar.dart';
-import 'package:para_v3/module/universal_alert_dialog.dart';
+import 'package:para_v3/module/auth_required_dialog.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'package:para_v3/services/recents_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:para_v3/pages/profile_page_sign_in.dart';
-import 'package:para_v3/pages/profile_page_sign_up.dart';
 import 'routes_page_map.dart';
 
 IconData getIconForType(VehicleType type) {
@@ -190,18 +188,10 @@ class _RoutesPageState extends State<RoutesPage> {
   }
 
   Future<void> _showAuthenticationPrompt() async {
-    await UniversalAlertDialog.show(
+    await AuthRequiredDialog.show(
       context: context,
       title: 'Sign in to save routes',
       content: 'Create an account or sign in to favorite routes and access them later.',
-      secondaryButtonText: 'Sign in',
-      onSecondaryPressed: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const ProfilePageSignIn()),
-      ),
-      primaryButtonText: 'Create account',
-      onPrimaryPressed: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const ProfilePageSignUp()),
-      ),
     );
   }
 

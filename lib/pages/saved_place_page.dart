@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:para_v3/module/appbar.dart';
+import 'package:para_v3/module/auth_required_dialog.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
 import 'package:para_v3/services/recents_service.dart';
@@ -42,7 +43,10 @@ class _SavedPlacePageState extends State<SavedPlacePage> {
   }
 
   Future<void> _search(String query) async {
-    final suggestions = await _autocomplete.getDebouncedSuggestions(query);
+    final suggestions = await _autocomplete.getDebouncedSuggestions(
+      query,
+      isAuthenticated: true,
+    );
     if (mounted) setState(() => _suggestions = suggestions);
   }
 
@@ -59,8 +63,11 @@ class _SavedPlacePageState extends State<SavedPlacePage> {
 
   Future<void> _save() async {
     if (Supabase.instance.client.auth.currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sign in to save places.')),
+      await AuthRequiredDialog.show(
+        context: context,
+        title: 'Sign in to save places',
+        content:
+            'Create an account or sign in to save Home, School, Work, and custom places.',
       );
       return;
     }
