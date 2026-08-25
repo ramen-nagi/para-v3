@@ -12,6 +12,7 @@ import 'package:para_v3/services/gtfs_network_service.dart';
 import 'package:para_v3/services/mapbox_services.dart';
 import 'package:para_v3/services/raptor_pathfinding_service.dart';
 import 'package:para_v3/services/fare_calculator_service.dart';
+import 'package:para_v3/services/commute_preferences_service.dart';
 
 class CommutePage extends StatefulWidget {
   const CommutePage({super.key});
@@ -81,11 +82,14 @@ class _CommutePageState extends State<CommutePage> {
         _sheetView = _CommuteSheetView.journeyOverviews;
       });
     }
+    final preferences = CommutePreferencesService.instance;
+    await preferences.initialize();
     final journeys = RaptorPathfindingService.instance.findJourneys(
       originLat: origin.lat.toDouble(),
       originLng: origin.lng.toDouble(),
       destLat: destination.lat.toDouble(),
       destLng: destination.lng.toDouble(),
+      excludedVehicleTypes: preferences.excludedVehicleTypes,
     );
 
     for (final journey in journeys) {

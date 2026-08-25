@@ -143,6 +143,7 @@ class RaptorPathfindingService {
     required double originLng,
     required double destLat,
     required double destLng,
+    Set<VehicleType> excludedVehicleTypes = const {},
   }) {
     if (!GtfsNetworkService.instance.isLoaded) {
       debugPrint('RAPTOR Error: GTFS dataset not loaded yet.');
@@ -156,6 +157,7 @@ class RaptorPathfindingService {
     final Set<String> seenSequences = {};
 
     for (final route in GtfsNetworkService.instance.routesMap.values) {
+      if (excludedVehicleTypes.contains(route.vehicleType)) continue;
       for (final trip in route.trips) {
         final sortedStops = List<StopsAndStopTimesModel>.from(trip.stopTimes)
           ..sort((a, b) => a.stopSequence.compareTo(b.stopSequence));
