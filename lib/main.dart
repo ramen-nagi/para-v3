@@ -30,6 +30,7 @@ class ParaApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      scaffoldMessengerKey: offlineScaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
       title: 'Para Metro Manila Commute App',
       theme: ThemeData(
@@ -72,6 +73,7 @@ class _OfflineConnectivityGateState extends State<OfflineConnectivityGate> {
     if (status == InternetStatus.connected) {
       _statusCheckGeneration++;
       _offlineModalShownForOutage = false;
+      offlineScaffoldMessengerKey.currentState?.hideCurrentSnackBar();
       return;
     }
 

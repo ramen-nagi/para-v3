@@ -125,6 +125,7 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
             ? await MapMatchingService.fetchRouteMetadataResultTrain(
                 widget.route.vehicleType,
                 _getShapeCoordinates(trip),
+                routeId: widget.route.routeId,
               )
             : await MapMatchingService.fetchMapMatching(
                 'driving-traffic',

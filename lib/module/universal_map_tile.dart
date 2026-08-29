@@ -172,6 +172,16 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
   }
 
   @override
+  void didUpdateWidget(covariant UniversalMapTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isStartingCommute != widget.isStartingCommute) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _updateMapOrnamentMargins();
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final Point defaultPoint = Point(coordinates: Position(121.0403, 14.5895));
 

@@ -220,6 +220,9 @@ class MapMatchingService {
   static Future<RouteMetadataResult> fetchRouteMetadataResultTrain(
     VehicleType vehicleType,
     List<Position> shapeCoordinates,
+    {
+    String? routeId,
+    }
   ) async {
     var distanceMeters = 0.0;
     for (var index = 1; index < shapeCoordinates.length; index++) {
@@ -229,10 +232,18 @@ class MapMatchingService {
       );
     }
 
+    const speedsKmh = <String, double>{
+      'ROUTE_880747': 40.0,
+      'ROUTE_880801': 40.0,
+      'ROUTE_880854': 35.0,
+    };
+    final speedKmh = speedsKmh[routeId] ?? 35.0;
+    final durationSeconds = distanceMeters / 1000 / speedKmh * 3600;
+
     return RouteMetadataResult(
       coordinates: shapeCoordinates,
       distanceMeters: distanceMeters,
-      durationSeconds: const Duration(minutes: 20).inSeconds.toDouble(),
+      durationSeconds: durationSeconds,
       traffic: null,
     );
   }

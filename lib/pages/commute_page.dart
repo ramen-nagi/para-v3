@@ -1,5 +1,4 @@
 import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/drag_scroll_sheet.dart';
@@ -121,6 +120,7 @@ class _CommutePageState extends State<CommutePage> {
         metadata = await MapMatchingService.fetchRouteMetadataResultTrain(
           leg.vehicleType,
           shapeCoordinates,
+          routeId: leg.routeId,
         );
       } else if (leg.isWalking) {
         final start = _positionForLegStop(leg.fromStopId);
@@ -830,6 +830,7 @@ class _CommutePageState extends State<CommutePage> {
     return Stack(
       children: [
         UniversalMapTile(
+          isStartingCommute: _isCommuting,
           onMapCreated: (mapboxMap) async {
             _mapboxMap = mapboxMap;
             _endpointAnnotationManager = null;
