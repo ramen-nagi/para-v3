@@ -94,6 +94,15 @@ class RecentsService {
     }
   }
 
+  Future<void> clearSavedPlaces() async {
+    final db = await _openDatabase();
+    try {
+      db.execute('DELETE FROM $_savedTableName');
+    } finally {
+      db.dispose();
+    }
+  }
+
   SavedPlace _savedPlaceFromRow(Row row) => SavedPlace(
     key: row['save_key'] as String,
     label: row['label'] as String,

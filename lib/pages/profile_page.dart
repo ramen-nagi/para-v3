@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:para_v3/module/profile_item_section.dart';
 import 'package:para_v3/module/appbar.dart';
+import 'package:para_v3/pages/profile_page_privacy_policy.dart';
+import 'package:para_v3/pages/profile_page_terms_of_service.dart';
 import 'package:para_v3/pages/profile_page_about.dart';
 import 'package:para_v3/pages/profile_page_address_search_history.dart';
 import 'package:para_v3/pages/profile_page_change_email.dart';
@@ -11,6 +13,7 @@ import 'package:para_v3/pages/profile_page_sign_in.dart';
 import 'package:para_v3/pages/profile_page_sign_up.dart';
 import 'package:para_v3/pages/reports_page.dart';
 import 'package:para_v3/pages/route_suggestion_page.dart';
+import 'package:para_v3/pages/profile_page_saved_address.dart';
 import 'package:para_v3/services/fare_calculator_service.dart';
 import 'package:para_v3/services/commute_preferences_service.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
@@ -271,18 +274,16 @@ class _ProfilePageState extends State<ProfilePage> {
     return ProfileSection(
       title: 'About Para',
       items: [
-        ProfileTabs(
-          icon: Icons.privacy_tip_outlined,
-          label: 'Privacy Policy',
-          onTap: () => _open(
-            const ProfilePageAbout(title: 'Privacy Policy'),
-          ),
+          ProfileTabs(
+            icon: Icons.privacy_tip_outlined,
+            label: 'Privacy Policy',
+            onTap: () => _open(const ProfilePrivacyPolicyPage()),
         ),
         ProfileTabs(
           icon: Icons.description_outlined,
           label: 'Terms of Service',
           onTap: () => _open(
-            const ProfilePageAbout(title: 'Terms of Service'),
+            const ProfilePageTermsOfService(),
           ),
         ),
         ProfileTabs(
@@ -349,12 +350,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ProfileTabs(
             icon: Icons.bookmark_outline,
             label: 'Saved Addresses',
-            onTap: _comingSoon,
-          ),
-          ProfileTabs(
-            icon: Icons.sync,
-            label: 'Sync Data',
-            onTap: _comingSoon,
+            onTap: () => _open(const SavedAddressesPage()),
           ),
         ],
       ),

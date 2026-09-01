@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 final offlineScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
-/// Compatibility wrapper for the former offline modal presentation.
 class OfflineModal {
   const OfflineModal._();
 

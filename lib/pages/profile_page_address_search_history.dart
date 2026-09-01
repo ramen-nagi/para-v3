@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:para_v3/module/appbar.dart';
+import 'package:para_v3/module/profile_list_page.dart';
+import 'package:para_v3/module/profile_list_tile.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
 import 'package:para_v3/services/recents_service.dart';
 
@@ -70,42 +72,35 @@ class _ProfilePageAddressSearchHistoryState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: ParaAppBar(
-        title: 'Address Search History',
-        actions: _suggestions.isEmpty
-            ? null
-            : [
-                IconButton(
-                  tooltip: 'Clear all history',
-                  onPressed: _clearHistory,
-                  icon: const Icon(Icons.delete_sweep_outlined),
-                ),
-              ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _suggestions.isEmpty
-              ? const Center(child: Text('No recent addresses yet.'))
-              : ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _suggestions.length,
-                  separatorBuilder: (_, _) => const Divider(),
-                  itemBuilder: (context, index) {
-                    final suggestion = _suggestions[index];
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.location_on_outlined),
-                      title: Text(suggestion.mainText),
-                      subtitle: Text(suggestion.secondaryText),
-                      trailing: IconButton(
-                        tooltip: 'Delete address',
-                        onPressed: () => _deleteAddress(suggestion),
-                        icon: const Icon(Icons.delete_outline),
-                      ),
-                    );
-                  },
-                ),
+    return ProfileListPage(
+      title: 'Address Search History',
+      actions: _suggestions.isEmpty
+          ? null
+          : [
+              IconButton(
+                tooltip: 'Clear all history',
+                onPressed: _clearHistory,
+                icon: const Icon(Icons.delete_sweep_outlined),
+              ),
+            ],
+      loading: _loading,
+      isEmpty: _suggestions.isEmpty,
+      emptyMessage: 'No recent addresses yet.',
+      children: [
+        for (final suggestion in _suggestions) ...[
+          ProfileListTile(
+            leading: const Icon(Icons.location_on_outlined),
+            title: suggestion.mainText,
+            subtitle: suggestion.secondaryText,
+            trailing: IconButton(
+              tooltip: 'Delete address',
+              onPressed: () => _deleteAddress(suggestion),
+              icon: const Icon(Icons.delete_outline),
+            ),
+          ),
+          const Divider(),
+        ],
+      ],
     );
   }
 }
