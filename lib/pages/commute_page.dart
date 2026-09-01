@@ -16,9 +16,43 @@ import 'package:para_v3/services/raptor_pathfinding_service.dart';
 import 'package:para_v3/services/route_progress_service.dart';
 import 'package:para_v3/services/fare_calculator_service.dart';
 import 'package:para_v3/services/commute_preferences_service.dart';
+import 'package:para_v3/services/recents_service.dart';
+
+class CommutePageController {
+  _CommutePageState? _state;
+  Journey? _pendingJourney;
+
+  Future<void> openRecentJourney(Journey journey) async {
+    final state = _state;
+    if (state == null) {
+      _pendingJourney = journey;
+      return;
+    }
+    await state._openRecentJourney(journey);
+  }
+
+  void _attach(_CommutePageState state) {
+    _state = state;
+    final pendingJourney = _pendingJourney;
+    _pendingJourney = null;
+    if (pendingJourney != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_state == state && state.mounted) {
+          state._openRecentJourney(pendingJourney);
+        }
+      });
+    }
+  }
+
+  void _detach(_CommutePageState state) {
+    if (_state == state) _state = null;
+  }
+}
 
 class CommutePage extends StatefulWidget {
-  const CommutePage({super.key});
+  final CommutePageController? controller;
+
+  const CommutePage({super.key, this.controller});
 
   @override
   State<CommutePage> createState() => _CommutePageState();
@@ -40,6 +74,8 @@ class _CommutePageState extends State<CommutePage> {
   final _destinationController = TextEditingController();
   Position? _originPosition;
   Position? _destinationPosition;
+  String? _originMainText;
+  String? _destinationMainText;
   List<Journey> _journeys = [];
   Journey? _selectedJourney;
   MapboxMap? _mapboxMap;
@@ -60,7 +96,23 @@ class _CommutePageState extends State<CommutePage> {
       _sheetView == _CommuteSheetView.commuteComplete;
 
   @override
+  void initState() {
+    super.initState();
+    widget.controller?._attach(this);
+  }
+
+  @override
+  void didUpdateWidget(covariant CommutePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller?._detach(this);
+      widget.controller?._attach(this);
+    }
+  }
+
+  @override
   void dispose() {
+    widget.controller?._detach(this);
     _gpsSubscription?.cancel();
     _originController.dispose();
     _destinationController.dispose();
@@ -76,6 +128,8 @@ class _CommutePageState extends State<CommutePage> {
           initialField: initialField,
           originPosition: _originPosition,
           destinationPosition: _destinationPosition,
+          originMainText: _originMainText,
+          destinationMainText: _destinationMainText,
         ),
       ),
     );
@@ -85,6 +139,8 @@ class _CommutePageState extends State<CommutePage> {
     setState(() {
       _originPosition = result.originPosition;
       _destinationPosition = result.destinationPosition;
+      _originMainText = result.originMainText;
+      _destinationMainText = result.destinationMainText;
     });
     final origin = _originPosition;
     final destination = _destinationPosition;
@@ -523,18 +579,78 @@ class _CommutePageState extends State<CommutePage> {
     await mapboxMap.flyTo(camera, MapAnimationOptions(duration: 500));
   }
 
-  Future<void> _startCommute(Journey journey) async {
+  Future<void> _startCommute(Journey journey) {
+    final originMainText = _originMainText ?? _originController.text.trim();
+    final destinationMainText =
+        _destinationMainText ?? _destinationController.text.trim();
+    final labeledJourney = Journey(
+      journey.legs,
+      originMainText: originMainText.isEmpty ? null : originMainText,
+      destinationMainText: destinationMainText.isEmpty
+          ? null
+          : destinationMainText,
+    );
+    return _activateJourney(labeledJourney, saveToHistory: true);
+  }
+
+  Future<void> _activateJourney(
+    Journey journey, {
+    required bool saveToHistory,
+  }) async {
     if (journey.legs.isEmpty) return;
     setState(() {
+      _selectedJourney = journey;
       _sheetView = _CommuteSheetView.activeLeg;
       _activeLegIndex = 0;
       _activeLegProgressMeters = 0;
       _nearLegEndUpdates = 0;
       _isOffRoute = false;
     });
+    if (saveToHistory) {
+      try {
+        await RecentsService.instance.saveRecentCommute(journey);
+      } catch (error) {
+        debugPrint('Failed to save recent commute: $error');
+        _showGpsMessage(
+          'Your commute started, but it could not be added to recents.',
+        );
+      }
+    }
     await _updateJourneyPolylineOpacity(activeLegIndex: 0);
     await _focusLegOnMap(journey.legs.first);
     await _startGpsTracking();
+  }
+
+  Future<void> _openRecentJourney(Journey journey) async {
+    if (!mounted || journey.legs.isEmpty) return;
+    await _stopGpsTracking();
+    await _clearJourneyMapOverlays();
+    await _endpointAnnotationManager?.deleteAll();
+
+    final firstCoordinates = journey.legs.first.coordinates;
+    final lastCoordinates = journey.legs.last.coordinates;
+    _originController.text =
+        journey.originMainText ?? journey.legs.first.fromStopName;
+    _destinationController.text =
+        journey.destinationMainText ?? journey.legs.last.toStopName;
+    setState(() {
+      _originPosition = firstCoordinates?.isNotEmpty == true
+          ? firstCoordinates!.first
+          : null;
+      _destinationPosition = lastCoordinates?.isNotEmpty == true
+          ? lastCoordinates!.last
+          : null;
+      _originMainText = journey.originMainText;
+      _destinationMainText = journey.destinationMainText;
+      _journeys = [journey];
+      _selectedJourney = journey;
+      _isBuildingJourneys = false;
+    });
+
+    await _showOriginDestinationMarkersAndFit();
+    await _drawSelectedJourneyPolylines(journey);
+    await _drawIntermediateStops(journey);
+    await _activateJourney(journey, saveToHistory: false);
   }
 
   Future<void> _showLegAtIndex(Journey journey, int index) async {
@@ -586,6 +702,8 @@ class _CommutePageState extends State<CommutePage> {
     setState(() {
       _originPosition = null;
       _destinationPosition = null;
+      _originMainText = null;
+      _destinationMainText = null;
       _journeys = [];
       _selectedJourney = null;
       _sheetView = _CommuteSheetView.journeyOverviews;
@@ -1164,6 +1282,17 @@ class _CommutePageState extends State<CommutePage> {
             _endpointAnnotationManager = null;
             _intermediateStopsAnnotationManager = null;
             await _showOriginDestinationMarkersAndFit();
+            final journey = _selectedJourney;
+            if (journey != null && (_isCommuting || _isCommuteComplete)) {
+              await _drawSelectedJourneyPolylines(journey);
+              await _drawIntermediateStops(journey);
+              await _updateJourneyPolylineOpacity(
+                activeLegIndex: _isCommuting ? _activeLegIndex : null,
+              );
+              if (_isCommuting) {
+                await _focusLegOnMap(journey.legs[_activeLegIndex]);
+              }
+            }
           },
         ),
 

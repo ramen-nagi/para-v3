@@ -14,18 +14,22 @@ import 'package:para_v3/pages/profile_page_sign_up.dart';
 import 'package:para_v3/pages/reports_page.dart';
 import 'package:para_v3/pages/route_suggestion_page.dart';
 import 'package:para_v3/pages/profile_page_saved_address.dart';
+import 'package:para_v3/pages/profile_page_recent_commutes.dart';
 import 'package:para_v3/services/fare_calculator_service.dart';
 import 'package:para_v3/services/commute_preferences_service.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
+import 'package:para_v3/services/raptor_pathfinding_service.dart';
 
 class ProfilePage extends StatefulWidget {
   final bool isDarkMode;
   final ValueChanged<bool> onDarkModeChanged;
+  final ValueChanged<Journey> onRecentCommuteSelected;
 
   const ProfilePage({
     super.key,
     required this.isDarkMode,
     required this.onDarkModeChanged,
+    required this.onRecentCommuteSelected,
   });
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -119,6 +123,14 @@ class _ProfilePageState extends State<ProfilePage> {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
   }
 
+  void _openRecentCommutes() {
+    _open(
+      ProfilePageRecentCommutes(
+        onCommuteSelected: widget.onRecentCommuteSelected,
+      ),
+    );
+  }
+
   Future<void> _verifyCurrentPasswordAndChange() async {
     final user = _user;
     if (user?.email == null) return;
@@ -143,7 +155,9 @@ class _ProfilePageState extends State<ProfilePage> {
     } on AuthException catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Password verification failed: ${error.message}')),
+        SnackBar(
+          content: Text('Password verification failed: ${error.message}'),
+        ),
       );
     }
   }
@@ -240,7 +254,8 @@ class _ProfilePageState extends State<ProfilePage> {
           icon: Icons.pedal_bike,
           label: 'Avoid Tricycle',
           value: _isPenalizeTricycle,
-          onChanged: (value) => _setVehiclePreference(VehicleType.tricycle, value),
+          onChanged: (value) =>
+              _setVehiclePreference(VehicleType.tricycle, value),
         ),
         _buildSwitchTab(
           icon: Icons.train,
@@ -264,7 +279,8 @@ class _ProfilePageState extends State<ProfilePage> {
           icon: Icons.directions_car,
           label: 'Avoid UV Express',
           value: _isPenalizeUvExpress,
-          onChanged: (value) => _setVehiclePreference(VehicleType.uvExpress, value),
+          onChanged: (value) =>
+              _setVehiclePreference(VehicleType.uvExpress, value),
         ),
       ],
     );
@@ -274,10 +290,10 @@ class _ProfilePageState extends State<ProfilePage> {
     return ProfileSection(
       title: 'About Para',
       items: [
-          ProfileTabs(
-            icon: Icons.privacy_tip_outlined,
-            label: 'Privacy Policy',
-            onTap: () => _open(const ProfilePrivacyPolicyPage()),
+        ProfileTabs(
+          icon: Icons.privacy_tip_outlined,
+          label: 'Privacy Policy',
+          onTap: () => _open(const ProfilePrivacyPolicyPage()),
         ),
         ProfileTabs(
           icon: Icons.description_outlined,
@@ -345,7 +361,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ProfileTabs(
             icon: Icons.route_outlined,
             label: 'Recent Commutes',
-            onTap: _comingSoon,
+            onTap: _openRecentCommutes,
           ),
           ProfileTabs(
             icon: Icons.bookmark_outline,
@@ -419,11 +435,9 @@ class _ProfilePageState extends State<ProfilePage> {
             onTap: () => _open(const ProfilePageAddressSearchHistory()),
           ),
           ProfileTabs(
-            // TODO: Add universal alert dialog to print the recent addresses in a listview with option to delete
-            // TODO: Make it tappable that will then take them to the commute page with enum activeLeg
             icon: Icons.route_outlined,
             label: 'Recent Commutes',
-            onTap: _comingSoon,
+            onTap: _openRecentCommutes,
           ),
         ],
       ),

@@ -15,10 +15,14 @@ enum CommuteInputField { origin, destination }
 class CommuteInputResult {
   final Position? originPosition;
   final Position? destinationPosition;
+  final String? originMainText;
+  final String? destinationMainText;
 
   const CommuteInputResult({
     required this.originPosition,
     required this.destinationPosition,
+    required this.originMainText,
+    required this.destinationMainText,
   });
 }
 
@@ -28,6 +32,8 @@ class CommutePageInput extends StatefulWidget {
   final CommuteInputField initialField;
   final Position? originPosition;
   final Position? destinationPosition;
+  final String? originMainText;
+  final String? destinationMainText;
 
   const CommutePageInput({
     super.key,
@@ -36,6 +42,8 @@ class CommutePageInput extends StatefulWidget {
     required this.initialField,
     this.originPosition,
     this.destinationPosition,
+    this.originMainText,
+    this.destinationMainText,
   });
 
   @override
@@ -52,6 +60,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
   int _suggestionRequestId = 0;
   Position? _originPosition;
   Position? _destinationPosition;
+  String? _originMainText;
+  String? _destinationMainText;
   List<SavedPlace> _savedPlaces = [];
   late final String _initialOriginText;
   late final String _initialDestinationText;
@@ -63,6 +73,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
     super.initState();
     _originPosition = widget.originPosition;
     _destinationPosition = widget.destinationPosition;
+    _originMainText = widget.originMainText;
+    _destinationMainText = widget.destinationMainText;
     _initialOriginText = widget.originController.text;
     _initialDestinationText = widget.destinationController.text;
     _initialOriginPosition = widget.originPosition;
@@ -120,8 +132,10 @@ class _CommutePageInputState extends State<CommutePageInput> {
     setState(() {
       if (isDestination) {
         _destinationPosition = place.position;
+        _destinationMainText = place.suggestion.mainText;
       } else {
         _originPosition = place.position;
+        _originMainText = place.suggestion.mainText;
       }
     });
     FocusScope.of(context).unfocus();
@@ -130,6 +144,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
         CommuteInputResult(
           originPosition: _originPosition,
           destinationPosition: _destinationPosition,
+          originMainText: _originMainText,
+          destinationMainText: _destinationMainText,
         ),
       );
     }
@@ -148,7 +164,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
     await AuthRequiredDialog.show(
       context: context,
       title: 'Sign in to save places',
-      content: 'Create an account or sign in to save Home, School, Work, and custom places.',
+      content:
+          'Create an account or sign in to save Home, School, Work, and custom places.',
     );
     return false;
   }
@@ -168,8 +185,10 @@ class _CommutePageInputState extends State<CommutePageInput> {
       _quotaPromptShown = false;
       if (_originFocusNode.hasFocus) {
         _originPosition = null;
+        _originMainText = null;
       } else if (_destinationFocusNode.hasFocus) {
         _destinationPosition = null;
+        _destinationMainText = null;
       }
     }
 
@@ -245,12 +264,15 @@ class _CommutePageInputState extends State<CommutePageInput> {
     final originText = widget.originController.text;
     final destinationText = widget.destinationController.text;
     final originPosition = _originPosition;
+    final originMainText = _originMainText;
 
     setState(() {
       widget.originController.text = destinationText;
       widget.destinationController.text = originText;
       _originPosition = _destinationPosition;
       _destinationPosition = originPosition;
+      _originMainText = _destinationMainText;
+      _destinationMainText = originMainText;
       _suggestions = [];
       _showingRecents = false;
     });
@@ -261,6 +283,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
         CommuteInputResult(
           originPosition: _originPosition,
           destinationPosition: _destinationPosition,
+          originMainText: _originMainText,
+          destinationMainText: _destinationMainText,
         ),
       );
     }
@@ -287,8 +311,10 @@ class _CommutePageInputState extends State<CommutePageInput> {
     setState(() {
       if (isDestination) {
         _destinationPosition = position;
+        _destinationMainText = suggestion.mainText;
       } else {
         _originPosition = position;
+        _originMainText = suggestion.mainText;
       }
     });
 
@@ -303,6 +329,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
       CommuteInputResult(
         originPosition: origin,
         destinationPosition: destination,
+        originMainText: _originMainText,
+        destinationMainText: _destinationMainText,
       ),
     );
   }
@@ -345,8 +373,10 @@ class _CommutePageInputState extends State<CommutePageInput> {
       setState(() {
         if (isDestination) {
           _destinationPosition = position;
+          _destinationMainText = 'Current location';
         } else {
           _originPosition = position;
+          _originMainText = 'Current location';
         }
         _suggestions = [];
       });
@@ -357,6 +387,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
           CommuteInputResult(
             originPosition: _originPosition,
             destinationPosition: _destinationPosition,
+            originMainText: _originMainText,
+            destinationMainText: _destinationMainText,
           ),
         );
       }
@@ -396,6 +428,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
           CommuteInputResult(
             originPosition: _originPosition,
             destinationPosition: _destinationPosition,
+            originMainText: _originMainText,
+            destinationMainText: _destinationMainText,
           ),
         );
         return false;

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:para_v3/module/appbar.dart';
 import 'package:para_v3/module/profile_list_page.dart';
 import 'package:para_v3/module/profile_list_tile.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';

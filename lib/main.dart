@@ -10,6 +10,7 @@ import 'pages/commute_page.dart';
 import 'pages/landing_page.dart';
 import 'pages/routes_page.dart';
 import 'pages/profile_page.dart';
+import 'services/raptor_pathfinding_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -162,6 +163,7 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
   int _selectedIndex = 0;
+  final CommutePageController _commutePageController = CommutePageController();
 
   @override
   void initState() {
@@ -177,14 +179,20 @@ class _MainPageState extends State<MainPage> {
     });
   }
 
+  Future<void> _openRecentCommute(Journey journey) async {
+    setState(() => _selectedIndex = 0);
+    await _commutePageController.openRecentJourney(journey);
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
-      const CommutePage(),
+      CommutePage(controller: _commutePageController),
       const RoutesPage(),
       ProfilePage(
         isDarkMode: widget.isDarkMode,
         onDarkModeChanged: widget.onDarkModeChanged,
+        onRecentCommuteSelected: _openRecentCommute,
       ),
     ];
 

@@ -13,6 +13,18 @@ class NavigationStep {
     this.distanceMeters,
     this.durationSeconds,
   });
+
+  Map<String, dynamic> toJson() => {
+    'instruction': instruction,
+    'distanceMeters': distanceMeters,
+    'durationSeconds': durationSeconds,
+  };
+
+  factory NavigationStep.fromJson(Map<String, dynamic> json) => NavigationStep(
+    instruction: json['instruction'] as String,
+    distanceMeters: (json['distanceMeters'] as num?)?.toDouble(),
+    durationSeconds: (json['durationSeconds'] as num?)?.toDouble(),
+  );
 }
 
 class Leg {
@@ -49,13 +61,91 @@ class Leg {
   });
 
   bool get isWalking => vehicleType == VehicleType.walk;
+
+  Map<String, dynamic> toJson() => {
+    'fromStopId': fromStopId,
+    'toStopId': toStopId,
+    'fromStopName': fromStopName,
+    'toStopName': toStopName,
+    'routeId': routeId,
+    'tripId': tripId,
+    'routeLongName': routeLongName,
+    'vehicleType': vehicleType.rawValue,
+    'coordinates': coordinates
+        ?.map((position) => [position.lng, position.lat])
+        .toList(),
+    'distance': distance,
+    'durationSeconds': durationSeconds,
+    'fare': fare,
+    'traffic': traffic,
+    'steps': steps?.map((step) => step.toJson()).toList(),
+  };
+
+  factory Leg.fromJson(Map<String, dynamic> json) {
+    final coordinateValues = json['coordinates'] as List?;
+    final trafficValues = json['traffic'] as List?;
+    final stepValues = json['steps'] as List?;
+    return Leg(
+      fromStopId: json['fromStopId'] as String,
+      toStopId: json['toStopId'] as String,
+      fromStopName: json['fromStopName'] as String,
+      toStopName: json['toStopName'] as String,
+      routeId: json['routeId'] as String?,
+      tripId: json['tripId'] as String?,
+      routeLongName: json['routeLongName'] as String?,
+      vehicleType: VehicleType.fromInt((json['vehicleType'] as num).toInt()),
+      coordinates: coordinateValues?.map((value) {
+        final pair = value as List;
+        return Position(
+          (pair[0] as num).toDouble(),
+          (pair[1] as num).toDouble(),
+        );
+      }).toList(),
+      distance: (json['distance'] as num?)?.toDouble(),
+      durationSeconds: (json['durationSeconds'] as num?)?.toDouble(),
+      fare: (json['fare'] as num?)?.toDouble(),
+      traffic: trafficValues?.map((value) => value as String?).toList(),
+      steps: stepValues
+          ?.map(
+            (value) => NavigationStep.fromJson(
+              Map<String, dynamic>.from(value as Map),
+            ),
+          )
+          .toList(),
+    );
+  }
 }
 
 class Journey {
   final List<Leg> legs;
-  Journey(this.legs);
+  final String? originMainText;
+  final String? destinationMainText;
+
+  Journey(
+    this.legs, {
+    this.originMainText,
+    this.destinationMainText,
+  });
 
   double get cost => legs.fold(0.0, (sum, leg) => sum + (leg.distance ?? 0.0));
+
+  Map<String, dynamic> toJson() => {
+    'version': 1,
+    'originMainText': originMainText,
+    'destinationMainText': destinationMainText,
+    'legs': legs.map((leg) => leg.toJson()).toList(),
+  };
+
+  factory Journey.fromJson(Map<String, dynamic> json) {
+    final legValues = json['legs'] as List;
+    return Journey(
+      legValues
+          .map((value) => Leg.fromJson(Map<String, dynamic>.from(value as Map)))
+          .toList(),
+      originMainText: json['originMainText'] as String?,
+      destinationMainText: json['destinationMainText'] as String?,
+    );
+  }
 }
 
 class RaptorRoute {
@@ -111,15 +201,17 @@ class RaptorPathfindingService {
   static const int infinity = 1000000;
 
   // ── Algorithm tuning constants ───────────────────────────────────────────
-  static const double _maxWalkingRadius    = 5000.0; // meters, dest walk limit
-  static const double _transitCostWeight   = 0.05;   // cost per meter on transit
-  static const double _transferPenalty     = 500.0;  // discourages extra transfers
-  static const double _walkCircuityFactor  = 1.4;    // straight-line → city-block
-  static const double _trainCostDivisor    = 1.7;    // trains cheaper relative to cost
-  static const double _originSearchRadius  = 3000.0; // initial origin walk radius
-  static const int    _maxRounds           = 6;
-  static const int    _maxResults          = 3;
-  static const int    _maxCandidatesPerRoute = 5;
+  static const double _maxWalkingRadius = 5000.0; // meters, dest walk limit
+  static const double _transitCostWeight = 0.05; // cost per meter on transit
+  static const double _transferPenalty = 500.0; // discourages extra transfers
+  static const double _walkCircuityFactor = 1.4; // straight-line → city-block
+  static const double _trainCostDivisor =
+      1.7; // trains cheaper relative to cost
+  static const double _originSearchRadius =
+      3000.0; // initial origin walk radius
+  static const int _maxRounds = 6;
+  static const int _maxResults = 3;
+  static const int _maxCandidatesPerRoute = 5;
   // ─────────────────────────────────────────────────────────────────────────
 
   // Haversine formula to compute distance in meters between two points
@@ -127,9 +219,12 @@ class RaptorPathfindingService {
     const double earthRadius = 6371000; // in meters
     final double dLat = _toRadians(lat2 - lat1);
     final double dLon = _toRadians(lon2 - lon1);
-    final double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(_toRadians(lat1)) * math.cos(_toRadians(lat2)) *
-            math.sin(dLon / 2) * math.sin(dLon / 2);
+    final double a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_toRadians(lat1)) *
+            math.cos(_toRadians(lat2)) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
     final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
     return earthRadius * c;
   }
@@ -160,7 +255,7 @@ class RaptorPathfindingService {
       for (final trip in route.trips) {
         final sortedStops = List<StopsAndStopTimesModel>.from(trip.stopTimes)
           ..sort((a, b) => a.stopSequence.compareTo(b.stopSequence));
-        
+
         if (sortedStops.isEmpty) continue;
 
         // Populate stops
@@ -172,14 +267,16 @@ class RaptorPathfindingService {
         final sequenceSignature = sortedStops.map((s) => s.stopId).join('->');
         if (!seenSequences.contains(sequenceSignature)) {
           seenSequences.add(sequenceSignature);
-          
+
           // Precompute cumulative distances along the route
           final List<double> cumulativeDistances = [0.0];
           double accum = 0.0;
           for (int idx = 0; idx < sortedStops.length - 1; idx++) {
             accum += computeDistance(
-              sortedStops[idx].stopLat, sortedStops[idx].stopLon,
-              sortedStops[idx + 1].stopLat, sortedStops[idx + 1].stopLon,
+              sortedStops[idx].stopLat,
+              sortedStops[idx].stopLon,
+              sortedStops[idx + 1].stopLat,
+              sortedStops[idx + 1].stopLon,
             );
             cumulativeDistances.add(accum);
           }
@@ -217,7 +314,11 @@ class RaptorPathfindingService {
       stopGrid.putIfAbsent(key, () => []).add(stop);
     }
 
-    List<StopsAndStopTimesModel> getNearbyStops(double lat, double lon, double maxDist) {
+    List<StopsAndStopTimesModel> getNearbyStops(
+      double lat,
+      double lon,
+      double maxDist,
+    ) {
       final List<StopsAndStopTimesModel> nearby = [];
       final int latKey = (lat * 100).floor();
       final int lonKey = (lon * 100).floor();
@@ -259,7 +360,12 @@ class RaptorPathfindingService {
       final List<Transfer> list = [];
       for (final other in nearby) {
         if (other.stopId == stop.stopId) continue;
-        final d = computeDistance(stop.stopLat, stop.stopLon, other.stopLat, other.stopLon);
+        final d = computeDistance(
+          stop.stopLat,
+          stop.stopLon,
+          other.stopLat,
+          other.stopLon,
+        );
         list.add(Transfer(toStopId: other.stopId, distance: d));
       }
       transfers[stop.stopId] = list;
@@ -286,10 +392,19 @@ class RaptorPathfindingService {
     // Expand radius until at least one stop is found, up to 5km
     while (originNearby.isEmpty && currentOriginRadius <= 5000.0) {
       final nearby = getNearbyStops(originLat, originLng, currentOriginRadius);
-      originNearby = nearby.map((s) => Transfer(
-        toStopId: s.stopId,
-        distance: computeDistance(originLat, originLng, s.stopLat, s.stopLon),
-      )).toList();
+      originNearby = nearby
+          .map(
+            (s) => Transfer(
+              toStopId: s.stopId,
+              distance: computeDistance(
+                originLat,
+                originLng,
+                s.stopLat,
+                s.stopLon,
+              ),
+            ),
+          )
+          .toList();
 
       if (originNearby.isEmpty) {
         currentOriginRadius += 500.0;
@@ -316,7 +431,8 @@ class RaptorPathfindingService {
 
     // --- Direct Walk Option ---
     final directWalkDist =
-        computeDistance(originLat, originLng, destLat, destLng) * _walkCircuityFactor;
+        computeDistance(originLat, originLng, destLat, destLng) *
+        _walkCircuityFactor;
     candidates["__DIRECT__"] = _ResultMeta(
       stopId: "__DIRECT__",
       totalCost: directWalkDist,
@@ -381,7 +497,9 @@ class RaptorPathfindingService {
             final transitDist = currentDistOnRoute - distAtBoarding;
 
             final rr = routesById[routeId];
-            final isTrain = routeId.startsWith('ROUTE') || (rr?.vehicleType == VehicleType.train);
+            final isTrain =
+                routeId.startsWith('ROUTE') ||
+                (rr?.vehicleType == VehicleType.train);
             final effectiveWeight = isTrain
                 ? (_transitCostWeight / _trainCostDivisor)
                 : _transitCostWeight;
@@ -436,12 +554,14 @@ class RaptorPathfindingService {
         final stop = allStops[stopId]!;
         final d = computeDistance(stop.stopLat, stop.stopLon, destLat, destLng);
         if (d <= _maxWalkingRadius) {
-          roundReachable.add(_ResultMeta(
-            stopId: stopId,
-            totalCost: costToStop + d,
-            finalDist: d,
-            parents: Map.from(parents),
-          ));
+          roundReachable.add(
+            _ResultMeta(
+              stopId: stopId,
+              totalCost: costToStop + d,
+              finalDist: d,
+              parents: Map.from(parents),
+            ),
+          );
         }
       }
 
@@ -555,7 +675,9 @@ class RaptorPathfindingService {
       if (parent == null) break;
 
       final isWalking = parent.routeId == null;
-      final fromStop = parent.fromStopId == "__ORIGIN__" ? null : allStops[parent.fromStopId];
+      final fromStop = parent.fromStopId == "__ORIGIN__"
+          ? null
+          : allStops[parent.fromStopId];
       final toStop = allStops[currentStopId];
 
       if (isWalking) {
@@ -572,7 +694,7 @@ class RaptorPathfindingService {
         );
       } else {
         final rr = routesById[parent.routeId!];
-        
+
         // Calculate transit distance along the route
         double transitDist = 0.0;
         if (rr != null) {
@@ -580,7 +702,9 @@ class RaptorPathfindingService {
           final startIdx = stops.indexOf(parent.fromStopId);
           final endIdx = stops.indexOf(currentStopId);
           if (startIdx != -1 && endIdx != -1 && startIdx < endIdx) {
-            transitDist = rr.cumulativeDistances[endIdx] - rr.cumulativeDistances[startIdx];
+            transitDist =
+                rr.cumulativeDistances[endIdx] -
+                rr.cumulativeDistances[startIdx];
           }
         }
 
