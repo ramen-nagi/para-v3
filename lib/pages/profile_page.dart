@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:para_v3/module/profile_item_section.dart';
 import 'package:para_v3/module/appbar.dart';
+import 'package:para_v3/pages/profile_page_about.dart';
+import 'package:para_v3/pages/profile_page_address_search_history.dart';
+import 'package:para_v3/pages/profile_page_change_email.dart';
 import 'package:para_v3/pages/profile_page_reset_password.dart';
 import 'package:para_v3/pages/profile_page_sign_in.dart';
 import 'package:para_v3/pages/profile_page_sign_up.dart';
@@ -13,7 +16,14 @@ import 'package:para_v3/services/commute_preferences_service.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+  final bool isDarkMode;
+  final ValueChanged<bool> onDarkModeChanged;
+
+  const ProfilePage({
+    super.key,
+    required this.isDarkMode,
+    required this.onDarkModeChanged,
+  });
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
@@ -22,7 +32,6 @@ class _ProfilePageState extends State<ProfilePage> {
   StreamSubscription<AuthState>? _authSubscription;
   User? _user;
   bool _isDiscounted = false;
-  bool _isDarkMode = false;
   bool _isPenalizeTricycle = false;
   bool _isPenalizeTrain = false;
   bool _isPenalizeJeep = false;
@@ -202,11 +211,10 @@ class _ProfilePageState extends State<ProfilePage> {
       title: 'App Settings',
       items: [
         _buildSwitchTab(
-          // TODO: Make the app in dark mode
           icon: Icons.dark_mode_outlined,
           label: 'Dark Mode',
-          value: _isDarkMode,
-          onChanged: (value) => setState(() => _isDarkMode = value),
+          value: widget.isDarkMode,
+          onChanged: widget.onDarkModeChanged,
         ),
       ],
     );
@@ -264,28 +272,32 @@ class _ProfilePageState extends State<ProfilePage> {
       title: 'About Para',
       items: [
         ProfileTabs(
-          // TODO: Add contents here using UniversalAlertDialog
           icon: Icons.privacy_tip_outlined,
           label: 'Privacy Policy',
-          onTap: _comingSoon,
+          onTap: () => _open(
+            const ProfilePageAbout(title: 'Privacy Policy'),
+          ),
         ),
         ProfileTabs(
-          // TODO: Add contents here using UniversalAlertDialog
           icon: Icons.description_outlined,
           label: 'Terms of Service',
-          onTap: _comingSoon,
+          onTap: () => _open(
+            const ProfilePageAbout(title: 'Terms of Service'),
+          ),
         ),
         ProfileTabs(
-          // TODO: Add contents here using UniversalAlertDialog
           icon: Icons.help_outline,
           label: 'Help and Support',
-          onTap: _comingSoon,
+          onTap: () => _open(
+            const ProfilePageAbout(title: 'Help and Support'),
+          ),
         ),
         ProfileTabs(
-          // TODO: Add contents here using UniversalAlertDialog
           icon: Icons.auto_stories_outlined,
           label: 'Para Lore',
-          onTap: _comingSoon,
+          onTap: () => _open(
+            const ProfilePageAbout(title: 'Para Lore'),
+          ),
         ),
       ],
     );
@@ -327,7 +339,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ProfileTabs(
             icon: Icons.history,
             label: 'Address Search History',
-            onTap: _comingSoon,
+            onTap: () => _open(const ProfilePageAddressSearchHistory()),
           ),
           ProfileTabs(
             icon: Icons.route_outlined,
@@ -356,7 +368,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ProfileTabs(
             icon: Icons.email_outlined,
             label: 'Change Email',
-            onTap: _comingSoon,
+            onTap: () => _open(const ProfilePageChangeEmail()),
           ),
           ProfileTabs(
             icon: Icons.lock_reset,
@@ -406,10 +418,9 @@ class _ProfilePageState extends State<ProfilePage> {
         title: 'My Information',
         items: [
           ProfileTabs(
-            // TODO: Add universal alert dialog to print the recent addresses in a listview with option to delete
             icon: Icons.history,
             label: 'Address Search History',
-            onTap: _comingSoon,
+            onTap: () => _open(const ProfilePageAddressSearchHistory()),
           ),
           ProfileTabs(
             // TODO: Add universal alert dialog to print the recent addresses in a listview with option to delete

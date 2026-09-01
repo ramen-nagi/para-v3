@@ -2,66 +2,74 @@ import 'package:flutter/material.dart';
 import 'package:para_v3/module/appbar.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class ProfilePageSignUp extends StatefulWidget {
-  const ProfilePageSignUp({super.key});
+class ProfilePageChangeEmail extends StatefulWidget {
+  const ProfilePageChangeEmail({super.key});
+
   @override
-  State<ProfilePageSignUp> createState() => _ProfilePageSignUpState();
+  State<ProfilePageChangeEmail> createState() =>
+      _ProfilePageChangeEmailState();
 }
 
-class _ProfilePageSignUpState extends State<ProfilePageSignUp> {
+class _ProfilePageChangeEmailState extends State<ProfilePageChangeEmail> {
   final _email = TextEditingController();
   final _password = TextEditingController();
-  final _confirm = TextEditingController();
   bool _loading = false;
+
   @override
   void dispose() {
     _email.dispose();
     _password.dispose();
-    _confirm.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    if (_email.text.trim().isEmpty || _password.text.length < 6) {
-      _show('Use a valid email and a password with at least 6 characters.');
+    final currentEmail = Supabase.instance.client.auth.currentUser?.email;
+    final newEmail = _email.text.trim();
+
+    if (currentEmail == null) return;
+    if (!newEmail.contains('@') || !newEmail.contains('.')) {
+      _show('Enter a valid email address.');
       return;
     }
-    if (_password.text != _confirm.text) {
-      _show('Passwords do not match.');
+    if (newEmail.toLowerCase() == currentEmail.toLowerCase()) {
+      _show('Enter a different email address.');
       return;
     }
+    if (_password.text.isEmpty) {
+      _show('Enter your current password.');
+      return;
+    }
+
     setState(() => _loading = true);
     try {
-      final response = await Supabase.instance.client.auth.signUp(
-        email: _email.text.trim(),
+      await Supabase.instance.client.auth.signInWithPassword(
+        email: currentEmail,
         password: _password.text,
       );
+      await Supabase.instance.client.auth.updateUser(
+        UserAttributes(email: newEmail),
+      );
       if (!mounted) return;
-      if (response.session == null) {
-        _show('Check your email to confirm your account.');
-        Navigator.pop(context);
-        return;
-      }
-
-      _show('Account created successfully.');
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      _show('Check your email to confirm the change.');
+      Navigator.pop(context);
     } on AuthException catch (error) {
-      _show(error.message);
+      _show('Unable to change email: ${error.message}');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   void _show(String message) {
-    if (mounted)
+    if (mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: const ParaAppBar(title: 'Create account'),
+    appBar: const ParaAppBar(title: 'Change email'),
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -69,7 +77,7 @@ class _ProfilePageSignUpState extends State<ProfilePageSignUp> {
           controller: _email,
           keyboardType: TextInputType.emailAddress,
           decoration: const InputDecoration(
-            labelText: 'Email',
+            labelText: 'New email',
             border: OutlineInputBorder(),
           ),
         ),
@@ -78,23 +86,14 @@ class _ProfilePageSignUpState extends State<ProfilePageSignUp> {
           controller: _password,
           obscureText: true,
           decoration: const InputDecoration(
-            labelText: 'Password',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _confirm,
-          obscureText: true,
-          decoration: const InputDecoration(
-            labelText: 'Confirm password',
+            labelText: 'Current password',
             border: OutlineInputBorder(),
           ),
         ),
         const SizedBox(height: 20),
         FilledButton(
           onPressed: _loading ? null : _submit,
-          child: Text(_loading ? 'Creating account...' : 'Sign up'),
+          child: Text(_loading ? 'Changing email...' : 'Change email'),
         ),
       ],
     ),

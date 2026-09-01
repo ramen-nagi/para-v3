@@ -126,6 +126,27 @@ class RecentsService {
     }
   }
 
+  Future<void> deleteRecentSuggestion(String placeId) async {
+    final db = await _openDatabase();
+    try {
+      db.execute(
+        'DELETE FROM $_tableName WHERE place_id = ?',
+        [placeId],
+      );
+    } finally {
+      db.dispose();
+    }
+  }
+
+  Future<void> clearRecentSuggestions() async {
+    final db = await _openDatabase();
+    try {
+      db.execute('DELETE FROM $_tableName');
+    } finally {
+      db.dispose();
+    }
+  }
+
   Future<Position?> getRecentPosition(String placeId) async {
     final db = await _openDatabase();
     try {

@@ -3,13 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:internet_connection_checker_plus/internet_connection_checker_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'package:para_v3/module/offline_modal.dart';
 import 'pages/commute_page.dart';
+import 'pages/landing_page.dart';
 import 'pages/routes_page.dart';
 import 'pages/profile_page.dart';
 
-void main() async{
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await dotenv.load(fileName: ".env");
@@ -24,8 +26,34 @@ void main() async{
   runApp(const ParaApp());
 }
 
-class ParaApp extends StatelessWidget {
+class ParaApp extends StatefulWidget {
   const ParaApp({super.key});
+
+  @override
+  State<ParaApp> createState() => _ParaAppState();
+}
+
+class _ParaAppState extends State<ParaApp> {
+  static const _darkModeKey = 'dark_mode';
+  bool _isDarkMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDarkMode();
+  }
+
+  Future<void> _loadDarkMode() async {
+    final preferences = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() => _isDarkMode = preferences.getBool(_darkModeKey) ?? false);
+  }
+
+  Future<void> _setDarkMode(bool value) async {
+    setState(() => _isDarkMode = value);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_darkModeKey, value);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +65,20 @@ class ParaApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const OfflineConnectivityGate(child: MainPage()),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+      ),
+      themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
+      home: OfflineConnectivityGate(
+        child: MainPage(
+          isDarkMode: _isDarkMode,
+          onDarkModeChanged: _setDarkMode,
+        ),
+      ),
     );
   }
 }
@@ -106,7 +147,14 @@ class _OfflineConnectivityGateState extends State<OfflineConnectivityGate> {
 }
 
 class MainPage extends StatefulWidget {
-  const MainPage({super.key});
+  final bool isDarkMode;
+  final ValueChanged<bool> onDarkModeChanged;
+
+  const MainPage({
+    super.key,
+    required this.isDarkMode,
+    required this.onDarkModeChanged,
+  });
 
   @override
   State<MainPage> createState() => _MainPageState();
@@ -115,11 +163,13 @@ class MainPage extends StatefulWidget {
 class _MainPageState extends State<MainPage> {
   int _selectedIndex = 0;
 
-  final List<Widget> _pages = const [
-    CommutePage(),
-    RoutesPage(),
-    ProfilePage(),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ParaSafetyLanding.show(context);
+    });
+  }
 
   void _onItemTapped(int index) {
     setState(() {
@@ -129,8 +179,17 @@ class _MainPageState extends State<MainPage> {
 
   @override
   Widget build(BuildContext context) {
+    final pages = [
+      const CommutePage(),
+      const RoutesPage(),
+      ProfilePage(
+        isDarkMode: widget.isDarkMode,
+        onDarkModeChanged: widget.onDarkModeChanged,
+      ),
+    ];
+
     return Scaffold(
-      body: IndexedStack(index: _selectedIndex, children: _pages),
+      body: IndexedStack(index: _selectedIndex, children: pages),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
