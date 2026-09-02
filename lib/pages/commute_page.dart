@@ -69,6 +69,8 @@ class _CommutePageState extends State<CommutePage> {
   static const _offRouteDistanceMeters = 100.0;
   static const _nextLegDistanceMeters = 50.0;
   static const _legEndDistanceMeters = 35.0;
+  static const _journeyPolylineColor = Color(0xFF0081FB);
+  static const _journeyDestinationColor = Color(0xFFC62828);
 
   final _originController = TextEditingController();
   final _destinationController = TextEditingController();
@@ -756,6 +758,8 @@ class _CommutePageState extends State<CommutePage> {
   }
 
   Widget _buildJourneyCardOverview(Journey journey) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final transitLegs = journey.legs.where((leg) => !leg.isWalking).toList();
     final totalDistance = journey.legs.fold<double>(
       0,
       (total, leg) => total + (leg.distance ?? 0),
@@ -775,9 +779,14 @@ class _CommutePageState extends State<CommutePage> {
     );
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      child: InkWell(
         onTap: () async {
           setState(() {
             _selectedJourney = journey;
@@ -787,51 +796,106 @@ class _CommutePageState extends State<CommutePage> {
           await _drawIntermediateStops(journey);
         },
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(10),
           child: Column(
             children: [
               Row(
                 children: [
                   Expanded(
-                    child: _buildOverviewValue(
-                      'Total distance',
-                      _formatDistance(totalDistance),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (
+                            var index = 0;
+                            index < transitLegs.length;
+                            index++
+                          ) ...[
+                            _buildVehicleTypeIndicator(
+                              transitLegs[index].vehicleType,
+                            ),
+                            if (index < transitLegs.length - 1)
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  left: 1,
+                                  right: 1,
+                                  bottom: 15,
+                                ),
+                                child: Icon(
+                                  Icons.chevron_right_rounded,
+                                  size: 17,
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                          ],
+                        ],
+                      ),
                     ),
                   ),
-                  Expanded(
-                    child: _buildOverviewValue(
-                      'Walking distance',
-                      _formatDistance(walkingDistance),
+                  const SizedBox(width: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 6,
                     ),
-                  ),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerLow,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text('Fare'),
-                        SizedBox(height: 2),
+                        const Icon(
+                          Icons.schedule_outlined,
+                          size: 15,
+                          color: _journeyPolylineColor,
+                        ),
+                        const SizedBox(width: 4),
                         Text(
-                          _formatFare(totalFare),
-                          style: TextStyle(fontWeight: FontWeight.bold),
+                          _formatDuration(
+                            hasDuration ? totalDuration : null,
+                          ),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ],
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  for (final leg in journey.legs)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: Icon(_vehicleTypeIcon(leg.vehicleType)),
+              const SizedBox(height: 9),
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildOverviewValue(
+                        'Total distance',
+                        _formatDistance(totalDistance),
+                      ),
                     ),
-                  const Spacer(),
-                  const Icon(Icons.schedule, size: 18),
-                  const SizedBox(width: 4),
-                  Text(_formatDuration(hasDuration ? totalDuration : null)),
-                ],
+                    _buildOverviewDivider(),
+                    Expanded(
+                      child: _buildOverviewValue(
+                        'Walking distance',
+                        _formatDistance(walkingDistance),
+                      ),
+                    ),
+                    _buildOverviewDivider(),
+                    Expanded(
+                      child: _buildOverviewValue(
+                        'Fare',
+                        _formatFare(totalFare),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -842,12 +906,68 @@ class _CommutePageState extends State<CommutePage> {
 
   Widget _buildOverviewValue(String label, String value) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Text(label),
-        const SizedBox(height: 2),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        _oneLineText(
+          value,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 1),
+        _oneLineText(
+          label,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 10,
+          ),
+        ),
       ],
+    );
+  }
+
+  Widget _buildOverviewDivider() {
+    return Container(
+      width: 1,
+      height: 27,
+      color: Theme.of(context).colorScheme.outlineVariant,
+    );
+  }
+
+  Widget _buildVehicleTypeIndicator(VehicleType vehicleType) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return SizedBox(
+      width: 58,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: _journeyPolylineColor.withValues(alpha: 0.11),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(
+              _vehicleTypeIcon(vehicleType),
+              size: 25,
+              color: _journeyPolylineColor,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            vehicleType.displayName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: colorScheme.onSurfaceVariant,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -904,13 +1024,31 @@ class _CommutePageState extends State<CommutePage> {
 
   Widget _buildExpandedJourneyView(Journey selectedJourney) {
     final legs = selectedJourney.legs;
+    final totalDistance = legs.fold<double>(
+      0,
+      (total, leg) => total + (leg.distance ?? 0),
+    );
+    final totalDuration = legs.fold<double>(
+      0,
+      (total, leg) => total + (leg.durationSeconds ?? 0),
+    );
+    final totalFare = legs.fold<double>(
+      0,
+      (total, leg) => total + (leg.fare ?? 0),
+    );
+    final hasDistance = legs.any((leg) => leg.distance != null);
+    final hasDuration = legs.any((leg) => leg.durationSeconds != null);
+    final hasFare = legs.any((leg) => leg.fare != null);
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
             IconButton(
+              visualDensity: VisualDensity.compact,
               icon: const Icon(Icons.arrow_back),
+              tooltip: 'Back to journeys',
               onPressed: () => setState(() {
                 _selectedJourney = null;
                 _sheetView = _CommuteSheetView.journeyOverviews;
@@ -919,14 +1057,21 @@ class _CommutePageState extends State<CommutePage> {
             Expanded(
               child: _oneLineText(
                 'Journey details',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        const Divider(height: 10),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
+        _buildJourneySummary(
+          durationSeconds: hasDuration ? totalDuration : null,
+          distanceMeters: hasDistance ? totalDistance : null,
+          fare: hasFare ? totalFare : null,
+        ),
+        const SizedBox(height: 14),
 
         for (var index = 0; index < legs.length; index++)
           _buildExpandedLegRow(
@@ -942,12 +1087,14 @@ class _CommutePageState extends State<CommutePage> {
                 ? _destinationController.text
                 : legs.last.toStopName,
           ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: () => _startCommute(selectedJourney),
-            icon: const Icon(Icons.play_arrow),
+          child: FilledButton.icon(
+            onPressed: legs.isEmpty
+                ? null
+                : () => _startCommute(selectedJourney),
+            icon: const Icon(Icons.navigation_rounded, size: 19),
             label: const Text('Start commute'),
           ),
         ),
@@ -955,10 +1102,81 @@ class _CommutePageState extends State<CommutePage> {
     );
   }
 
+  Widget _buildJourneySummaryItem(IconData icon, String value) {
+    return Expanded(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 16, color: _journeyPolylineColor),
+          const SizedBox(width: 5),
+          Flexible(
+            child: _oneLineText(
+              value,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildJourneySummary({
+    required double? durationSeconds,
+    required double? distanceMeters,
+    required double? fare,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          _buildJourneySummaryItem(
+            Icons.schedule_outlined,
+            _formatDuration(durationSeconds),
+          ),
+          _buildJourneySummaryDivider(),
+          _buildJourneySummaryItem(
+            Icons.straighten_outlined,
+            _formatDistance(distanceMeters),
+          ),
+          _buildJourneySummaryDivider(),
+          _buildJourneySummaryItem(
+            Icons.payments_outlined,
+            _formatFare(fare),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildJourneySummaryDivider() {
+    return Container(
+      width: 1,
+      height: 22,
+      color: Theme.of(context).colorScheme.outlineVariant,
+    );
+  }
+
   Widget _buildActiveLegView(Journey journey) {
     final leg = journey.legs[_activeLegIndex];
     final isFirst = _activeLegIndex == 0;
     final isLast = _activeLegIndex == journey.legs.length - 1;
+    final colorScheme = Theme.of(context).colorScheme;
+    final fromName = isFirst && _originController.text.isNotEmpty
+        ? _originController.text
+        : leg.fromStopName;
+    final toName = isLast && _destinationController.text.isNotEmpty
+        ? _destinationController.text
+        : leg.toStopName;
+    final routeName = leg.isWalking
+        ? 'Walk'
+        : (leg.routeLongName ?? 'Transit');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -966,16 +1184,17 @@ class _CommutePageState extends State<CommutePage> {
         Row(
           children: [
             IconButton(
-              icon: const Icon(Icons.arrow_back),
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.close_rounded),
               tooltip: 'Journey details',
               onPressed: () => _showJourneyDetails(journey),
             ),
             Expanded(
               child: _oneLineText(
-                'Part ${_activeLegIndex + 1} / ${journey.legs.length}',
+                'Leg ${_activeLegIndex + 1} of ${journey.legs.length}',
                 style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -992,76 +1211,140 @@ class _CommutePageState extends State<CommutePage> {
             ),
           ],
         ),
-        const SizedBox(height: 12),
-        _oneLineText(
-          leg.fromStopName,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Icon(_vehicleTypeIcon(leg.vehicleType)),
-            const SizedBox(width: 8),
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: _journeyPolylineColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                _vehicleTypeIcon(leg.vehicleType),
+                size: 20,
+                color: _journeyPolylineColor,
+              ),
+            ),
+            const SizedBox(width: 10),
             Expanded(
-              child: _oneLineText(
-                leg.isWalking ? 'Walk' : (leg.routeLongName ?? 'Transit'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _oneLineText(
+                    routeName,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _oneLineText(
+                    '${_formatDuration(leg.durationSeconds)}  •  '
+                    '${_formatDistance(leg.distance)}  •  '
+                    '${_formatFare(leg.fare)}',
+                    style: TextStyle(
+                      color: colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        if (!leg.isWalking) ...[
+          const SizedBox(height: 10),
+          _oneLineText(
+            'From: $fromName',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          _oneLineText(
+            'To: $toName',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ],
         if (leg.isWalking) ...[
+          const SizedBox(height: 10),
           if (leg.steps?.isNotEmpty == true)
             for (var index = 0; index < leg.steps!.length; index++)
               Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.only(bottom: 5),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '${index + 1}.',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    Container(
+                      width: 20,
+                      height: 20,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: colorScheme.surfaceContainerLow,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '${index + 1}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 7),
                     Expanded(
-                      child: _oneLineText(leg.steps![index].instruction),
+                      child: _oneLineText(
+                        leg.steps![index].instruction,
+                        style: const TextStyle(fontSize: 13),
+                      ),
                     ),
                   ],
                 ),
               )
           else
-            const Text('Walk to the next stop.'),
-        ] else ...[
-          _oneLineText('Board at: ${leg.fromStopName}'),
-          const SizedBox(height: 6),
-          _oneLineText('Get off at: ${leg.toStopName}'),
+            const Text(
+              'Walk to the next stop.',
+              style: TextStyle(fontSize: 13),
+            ),
         ],
         if (_isOffRoute) ...[
           const SizedBox(height: 8),
-          Text(
-            'You are off the active route.',
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 17,
+                  color: colorScheme.onErrorContainer,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'You are off the active route.',
+                    style: TextStyle(
+                      color: colorScheme.onErrorContainer,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
         const SizedBox(height: 12),
         Row(
           children: [
-            const Icon(Icons.schedule, size: 18),
-            const SizedBox(width: 4),
-            _oneLineText(_formatDuration(leg.durationSeconds)),
-            const SizedBox(width: 16),
-            const Icon(Icons.straighten, size: 18),
-            const SizedBox(width: 4),
-            Expanded(child: _oneLineText(_formatDistance(leg.distance))),
-            const SizedBox(width: 8),
-            Text('Fare: ${_formatFare(leg.fare)}'),
-          ],
-        ),
-        const SizedBox(height: 20),
-        Row(
-          children: [
             Expanded(
               child: OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
                 onPressed: isFirst
                     ? null
                     : () => _showLegAtIndex(journey, _activeLegIndex - 1),
@@ -1070,7 +1353,10 @@ class _CommutePageState extends State<CommutePage> {
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: ElevatedButton(
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
                 onPressed: isLast
                     ? () => _completeCommute(journey)
                     : () => _showLegAtIndex(journey, _activeLegIndex + 1),
@@ -1173,71 +1459,113 @@ class _CommutePageState extends State<CommutePage> {
     required bool isOrigin,
     required String stopName,
   }) {
-    final markerColor = isOrigin ? Colors.blue : Colors.blue.shade700;
+    final colorScheme = Theme.of(context).colorScheme;
+    const legColor = _journeyPolylineColor;
     final routeName = leg.isWalking ? 'Walk' : (leg.routeLongName ?? 'Transit');
 
-    return Stack(
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 48, bottom: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _oneLineText(
-                stopName,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Icon(_vehicleTypeIcon(leg.vehicleType), size: 20),
-                  const SizedBox(width: 6),
-                  Expanded(child: _oneLineText(routeName)),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Icon(Icons.schedule, size: 16),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: _oneLineText(_formatDuration(leg.durationSeconds)),
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 40,
+            child: Stack(
+              alignment: Alignment.topCenter,
+              children: [
+                Positioned(
+                  top: 15,
+                  bottom: 0,
+                  width: leg.isWalking ? 6 : 4,
+                  child: leg.isWalking
+                      ? CustomPaint(
+                          painter: _DottedProgressPainter(color: legColor),
+                        )
+                      : DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: legColor,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                ),
+                Positioned(
+                  top: 2,
+                  child: Container(
+                    width: isOrigin ? 15 : 13,
+                    height: isOrigin ? 15 : 13,
+                    decoration: BoxDecoration(
+                      color: isOrigin
+                          ? _journeyPolylineColor
+                          : Colors.white,
+                      shape: BoxShape.circle,
+                      border: isOrigin
+                          ? null
+                          : Border.all(
+                              color: _journeyPolylineColor,
+                              width: 2,
+                            ),
+                    ),
                   ),
-                  const SizedBox(width: 12),
-                  const Icon(Icons.straighten, size: 16),
-                  const SizedBox(width: 4),
-                  Flexible(child: _oneLineText(_formatDistance(leg.distance))),
-                  const SizedBox(width: 12),
-                  Flexible(
-                    child: _oneLineText('Fare: ${_formatFare(leg.fare)}'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-            ],
-          ),
-        ),
-        Positioned(
-          left: isOrigin ? 12 : 14,
-          top: 2,
-          child: Container(
-            width: isOrigin ? 16 : 12,
-            height: isOrigin ? 16 : 12,
-            decoration: BoxDecoration(
-              color: markerColor,
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2),
+                ),
+              ],
             ),
           ),
-        ),
-        const Positioned(
-          left: 18,
-          top: 24,
-          bottom: 0,
-          width: 4,
-          child: CustomPaint(painter: _DottedProgressPainter()),
-        ),
-      ],
+          const SizedBox(width: 8),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _oneLineText(
+                    stopName,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildVehicleTypeIndicator(leg.vehicleType),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _oneLineText(
+                                routeName,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              _oneLineText(
+                                '${_formatDuration(leg.durationSeconds)}  •  '
+                                '${_formatDistance(leg.distance)}  •  '
+                                '${_formatFare(leg.fare)}',
+                                style: TextStyle(
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Divider(height: 1, color: colorScheme.outlineVariant),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1252,12 +1580,11 @@ class _CommutePageState extends State<CommutePage> {
             child: Align(
               alignment: Alignment.topCenter,
               child: Container(
-                width: 16,
-                height: 16,
+                width: 15,
+                height: 15,
                 decoration: BoxDecoration(
-                  color: Colors.red,
+                  color: _journeyDestinationColor,
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
                 ),
               ),
             ),
@@ -1267,7 +1594,10 @@ class _CommutePageState extends State<CommutePage> {
         Expanded(
           child: _oneLineText(
             destinationName,
-            style: const TextStyle(fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],
@@ -1366,11 +1696,13 @@ class _CommutePageState extends State<CommutePage> {
 }
 
 class _DottedProgressPainter extends CustomPainter {
-  const _DottedProgressPainter();
+  final Color color;
+
+  const _DottedProgressPainter({this.color = Colors.grey});
 
   @override
   void paint(ui.Canvas canvas, ui.Size size) {
-    final paint = ui.Paint()..color = Colors.grey;
+    final paint = ui.Paint()..color = color;
     const radius = 2.0;
     const gap = 8.0;
     final centerX = size.width / 2;
@@ -1381,5 +1713,6 @@ class _DottedProgressPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _DottedProgressPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _DottedProgressPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
