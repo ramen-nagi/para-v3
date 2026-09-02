@@ -226,6 +226,7 @@ class _CommutePageState extends State<CommutePage> {
       // assigns fare to the leg model fare field
       if (leg.vehicleType == VehicleType.train ||
           leg.vehicleType == VehicleType.jeep ||
+          leg.vehicleType == VehicleType.ejeep ||
           leg.vehicleType == VehicleType.bus ||
           leg.vehicleType == VehicleType.uvExpress) {
         leg.fare = await FareCalculatorService.instance.calculateLegFare(leg);
@@ -860,6 +861,8 @@ class _CommutePageState extends State<CommutePage> {
         return Icons.directions_bus;
       case VehicleType.jeep:
         return Icons.airport_shuttle;
+      case VehicleType.ejeep:
+        return Icons.electric_rickshaw;
       case VehicleType.tricycle:
         return Icons.moped;
       case VehicleType.uvExpress:
@@ -981,7 +984,7 @@ class _CommutePageState extends State<CommutePage> {
               tripId: leg.tripId,
               fromStopId: leg.fromStopId,
               toStopId: leg.toStopId,
-              vehicleType: leg.vehicleType.name,
+              vehicleType: leg.vehicleType.displayName,
               expectedFare: leg.fare,
               routeLongName: leg.routeLongName,
               fromStopName: isFirst ? _originController.text : leg.fromStopName,

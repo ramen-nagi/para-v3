@@ -14,6 +14,8 @@ IconData getIconForType(VehicleType type) {
       return Icons.directions_bus;
     case VehicleType.jeep:
       return Icons.airport_shuttle;
+    case VehicleType.ejeep:
+      return Icons.electric_rickshaw;
     case VehicleType.train:
       return Icons.train;
     case VehicleType.tricycle:
@@ -32,7 +34,7 @@ class RoutesPage extends StatefulWidget {
   State<RoutesPage> createState() => _RoutesPageState();
 }
 
-enum _RouteTab { favorites, bus, jeep, train, tricycle, uvExpress }
+enum _RouteTab { favorites, bus, jeep, ejeep, train, tricycle, uvExpress }
 
 extension on _RouteTab {
   VehicleType? get vehicleType {
@@ -43,6 +45,8 @@ extension on _RouteTab {
         return VehicleType.bus;
       case _RouteTab.jeep:
         return VehicleType.jeep;
+      case _RouteTab.ejeep:
+        return VehicleType.ejeep;
       case _RouteTab.train:
         return VehicleType.train;
       case _RouteTab.tricycle:
@@ -324,6 +328,7 @@ class _RoutesPageState extends State<RoutesPage> {
                   _buildTabItem(_RouteTab.favorites, 'Favorites'),
                   _buildTabItem(_RouteTab.bus, 'Bus'),
                   _buildTabItem(_RouteTab.jeep, 'Jeep'),
+                  _buildTabItem(_RouteTab.ejeep, 'E-Jeep'),
                   _buildTabItem(_RouteTab.train, 'Train'),
                   _buildTabItem(_RouteTab.tricycle, 'Tricycle'),
                   _buildTabItem(_RouteTab.uvExpress, 'UV Express'),
@@ -348,6 +353,10 @@ class _RoutesPageState extends State<RoutesPage> {
 
   Widget _buildTabItem(_RouteTab tab, String label) {
     final isSelected = _selectedTab == tab;
+    final colorScheme = Theme.of(context).colorScheme;
+    final selectedColor = Theme.of(context).brightness == Brightness.dark
+        ? colorScheme.onSurface
+        : colorScheme.primary;
 
     return InkWell(
       onTap: () => _onTabChanged(tab),
@@ -357,7 +366,7 @@ class _RoutesPageState extends State<RoutesPage> {
           border: Border(
             bottom: BorderSide(
               color: isSelected
-                  ? Theme.of(context).primaryColor
+                  ? selectedColor
                   : Colors.transparent,
               width: 3.0,
             ),
@@ -366,7 +375,7 @@ class _RoutesPageState extends State<RoutesPage> {
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? Theme.of(context).primaryColor : Colors.grey,
+            color: isSelected ? selectedColor : colorScheme.onSurfaceVariant,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
           ),
         ),

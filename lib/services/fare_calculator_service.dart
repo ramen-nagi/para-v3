@@ -41,6 +41,7 @@ class FareCalculatorService {
       case VehicleType.train:
         return _calculateTrainFare(leg, selectedFareType);
       case VehicleType.jeep:
+      case VehicleType.ejeep:
       case VehicleType.bus:
       case VehicleType.uvExpress:
         return _calculateDistanceFare(leg, selectedFareType);

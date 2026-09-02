@@ -31,21 +31,10 @@ class LocationTextfield extends StatelessWidget {
     this.showTrailingActions = false,
   });
 
-   Widget _buildMarker(Color color) {
-    return Container(
-      width: 16,
-      height: 16,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 2),
-      ),
-    );
-  }
-
   Widget _buildTextField({
     required TextEditingController controller,
     required String hintText,
+    required Color markerColor,
     FocusNode? focusNode,
     VoidCallback? onTap,
     ValueChanged<String>? onChanged,
@@ -57,8 +46,9 @@ class LocationTextfield extends StatelessWidget {
           listenable: focusNode ?? controller,
           builder: (context, child) {
             final isFocused = focusNode?.hasFocus ?? false;
+            final colorScheme = Theme.of(context).colorScheme;
             return SizedBox(
-              height: 40,
+              height: 48,
               child: TextField(
                 controller: controller,
                 focusNode: focusNode,
@@ -68,21 +58,62 @@ class LocationTextfield extends StatelessWidget {
                 maxLines: 1,
                 minLines: 1,
                 textAlignVertical: TextAlignVertical.center,
+                style: TextStyle(
+                  color: colorScheme.onSurface,
+                  fontSize: 16,
+                ),
                 decoration: InputDecoration(
                   hintText: hintText,
+                  hintStyle: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w400,
+                  ),
                   isDense: true,
                   filled: true,
                   fillColor: isFocused
-                      ? Theme.of(context).colorScheme.surfaceContainerHighest
-                      : Colors.transparent,
-                  constraints: const BoxConstraints.tightFor(height: 40),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                  border: InputBorder.none,
+                      ? colorScheme.surfaceContainerHighest
+                      : colorScheme.surface,
+                  constraints: const BoxConstraints.tightFor(height: 48),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                  prefixIcon: Padding(
+                    padding: const EdgeInsets.only(left: 8, right: 10),
+                    child: Icon(
+                      Icons.location_on,
+                      color: markerColor,
+                      size: 28,
+                    ),
+                  ),
+                  prefixIconConstraints: const BoxConstraints(
+                    minWidth: 46,
+                    minHeight: 48,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: colorScheme.outlineVariant,
+                      width: 1.25,
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: colorScheme.outlineVariant,
+                      width: 1.25,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: colorScheme.primary,
+                      width: 1.5,
+                    ),
+                  ),
                   suffixIconConstraints: const BoxConstraints(
-                    minWidth: 40,
-                    maxWidth: 40,
-                    minHeight: 40,
-                    maxHeight: 40,
+                    minWidth: 48,
+                    maxWidth: 48,
+                    minHeight: 48,
+                    maxHeight: 48,
                   ),
                   suffixIcon: value.text.isEmpty || !showClearButton
                       ? null
@@ -104,45 +135,34 @@ class LocationTextfield extends StatelessWidget {
     );
   }
 
-  
-
   @override
   Widget build(BuildContext context) {
     return Card(
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      color: Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildMarker(Colors.blue),
-                const SizedBox(height: 7),
-                for (var index = 0; index < 3; index++) ...[
-                  const Icon(Icons.circle, size: 4, color: Colors.grey),
-                  if (index < 2) const SizedBox(height: 3),
-                ],
-                const SizedBox(height: 7),
-                _buildMarker(Colors.red),
-              ],
-            ),
-            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 children: [
-                  const SizedBox(height: 8),
                   _buildTextField(
                     controller: originController,
                     focusNode: originFocusNode,
-                    hintText: 'Origin',
+                    hintText: 'Start Location',
+                    markerColor: const Color(0xFF1687F8),
                     onTap: onOriginTap,
                     onChanged: onOriginChanged,
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   _buildTextField(
                     controller: destinationController,
                     focusNode: destinationFocusNode,
-                    hintText: 'Destination',
+                    hintText: 'Target Destination',
+                    markerColor: const Color(0xFFFF3B43),
                     onTap: onDestinationTap,
                     onChanged: onDestinationChanged,
                   ),
@@ -150,15 +170,18 @@ class LocationTextfield extends StatelessWidget {
               ),
             ),
             if (showTrailingActions) ...[
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Column(
                 children: [
-                  const ReportButton(),
-                  const SizedBox(height: 10),
-                  IconButton(
-                    tooltip: 'Swap origin and destination',
-                    icon: const Icon(Icons.swap_vert),
-                    onPressed: onSwap,
+                  const SizedBox.square(dimension: 48, child: ReportButton()),
+                  const SizedBox(height: 12),
+                  SizedBox.square(
+                    dimension: 48,
+                    child: IconButton(
+                      tooltip: 'Swap origin and destination',
+                      icon: const Icon(Icons.swap_vert),
+                      onPressed: onSwap,
+                    ),
                   ),
                 ],
               ),

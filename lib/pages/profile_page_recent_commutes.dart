@@ -107,6 +107,8 @@ class _ProfilePageRecentCommutesState extends State<ProfilePageRecentCommutes> {
         return 'Bus';
       case VehicleType.jeep:
         return 'Jeep';
+      case VehicleType.ejeep:
+        return 'E-Jeep';
       case VehicleType.tricycle:
         return 'Tricycle';
       case VehicleType.uvExpress:

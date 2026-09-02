@@ -11,6 +11,7 @@ class CommutePreferencesService {
     VehicleType.tricycle: false,
     VehicleType.train: false,
     VehicleType.jeep: false,
+    VehicleType.ejeep: false,
     VehicleType.bus: false,
     VehicleType.uvExpress: false,
   };

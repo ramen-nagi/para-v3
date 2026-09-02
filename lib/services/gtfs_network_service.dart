@@ -15,11 +15,23 @@ enum VehicleType {
   jeep(3),
   bus(4),
   uvExpress(5),
-  walk(6)
+  walk(6),
+  ejeep(7)
   ;
 
   final int rawValue;
   const VehicleType(this.rawValue);
+
+  String get displayName => switch (this) {
+    VehicleType.unknown => 'Transit',
+    VehicleType.tricycle => 'Tricycle',
+    VehicleType.train => 'Train',
+    VehicleType.jeep => 'Jeep',
+    VehicleType.bus => 'Bus',
+    VehicleType.uvExpress => 'UV Express',
+    VehicleType.walk => 'Walk',
+    VehicleType.ejeep => 'E-Jeep',
+  };
 
   static VehicleType fromInt(int value) {
     return VehicleType.values.firstWhere(

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
@@ -28,12 +29,18 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
   static const _mapButtonStackHeight = 104.0;
   static const _trafficSourceId = 'mapbox-traffic-source';
   static const _trafficLayerId = 'mapbox-traffic-layer';
+  static const _lightStyleUri = 'mapbox://styles/mapbox/streets-v12';
+  static const _darkStyleUri = 'mapbox://styles/mapbox/dark-v11';
 
   final _locationPermissionService = const LocationPermissionService();
   LocationPermissionState? _locationPermissionState;
   MapboxMap? _mapboxMap;
   bool _isTrafficVisible = false;
+  bool? _isDarkMode;
   ViewportState? _viewport;
+
+  String _styleUri(bool isDarkMode) =>
+      isDarkMode ? _darkStyleUri : _lightStyleUri;
 
   Future<void> _enableLiveLocation(MapboxMap mapboxMap) async {
     final permissionState = await _locationPermissionService
@@ -96,12 +103,23 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
         await style.removeStyleSource(_trafficSourceId);
       }
     } else {
+      await _addTrafficLayer(mapboxMap);
+    }
+    if (!mounted) return;
+    setState(() => _isTrafficVisible = !_isTrafficVisible);
+  }
+
+  Future<void> _addTrafficLayer(MapboxMap mapboxMap) async {
+    final style = mapboxMap.style;
+    if (!await style.styleSourceExists(_trafficSourceId)) {
       await style.addSource(
         VectorSource(
           id: _trafficSourceId,
           url: 'mapbox://mapbox.mapbox-traffic-v1',
         ),
       );
+    }
+    if (!await style.styleLayerExists(_trafficLayerId)) {
       await style.addLayer(
         LineLayer(
           id: _trafficLayerId,
@@ -121,8 +139,16 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
         ),
       );
     }
-    if (!mounted) return;
-    setState(() => _isTrafficVisible = !_isTrafficVisible);
+  }
+
+  Future<void> _updateMapStyle(bool isDarkMode) async {
+    final mapboxMap = _mapboxMap;
+    if (mapboxMap == null) return;
+
+    await mapboxMap.loadStyleURI(_styleUri(isDarkMode));
+    if (!mounted || mapboxMap != _mapboxMap) return;
+    if (_isTrafficVisible) await _addTrafficLayer(mapboxMap);
+    await _updateMapOrnamentMargins();
   }
 
   Future<void> _panCameraToUserLocation() async {
@@ -166,6 +192,16 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    if (_isDarkMode == isDarkMode) return;
+
+    _isDarkMode = isDarkMode;
+    unawaited(_updateMapStyle(isDarkMode));
+  }
+
+  @override
   void dispose() {
     DragScrollSheet.sheetExtent.removeListener(_onSheetExtentChanged);
     super.dispose();
@@ -183,6 +219,7 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final Point defaultPoint = Point(coordinates: Position(121.0403, 14.5895));
 
     final CoordinateBounds metroManilaBounds = CoordinateBounds(
@@ -195,6 +232,7 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
       children: [
         MapWidget(
           key: const ValueKey("UniversalMapWidget"),
+          styleUri: _styleUri(isDarkMode),
           viewport: _viewport,
           cameraOptions: CameraOptions(
             center: defaultPoint,
@@ -202,6 +240,9 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
           ),
           onMapCreated: (MapboxMap mapboxMap) async {
             _mapboxMap = mapboxMap;
+            await mapboxMap.loadStyleURI(
+              _styleUri(_isDarkMode ?? isDarkMode),
+            );
             await mapboxMap.setBounds(
               CameraBoundsOptions(
                 bounds: metroManilaBounds,

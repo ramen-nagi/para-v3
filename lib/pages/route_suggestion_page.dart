@@ -24,6 +24,7 @@ class _RouteSuggestionPageState extends State<RouteSuggestionPage> {
   static const _vehicleTypes = <String, String>{
     'bus': 'Bus',
     'jeep': 'Jeep',
+    'ejeep': 'E-Jeep',
     'train': 'Train',
     'tricycle': 'Tricycle',
     'uv_express': 'UV Express',

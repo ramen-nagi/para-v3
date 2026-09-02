@@ -42,6 +42,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _isPenalizeTricycle = false;
   bool _isPenalizeTrain = false;
   bool _isPenalizeJeep = false;
+  bool _isPenalizeEjeep = false;
   bool _isPenalizeBus = false;
   bool _isPenalizeUvExpress = false;
 
@@ -73,6 +74,7 @@ class _ProfilePageState extends State<ProfilePage> {
       _isPenalizeTricycle = preferences.isPenalized(VehicleType.tricycle);
       _isPenalizeTrain = preferences.isPenalized(VehicleType.train);
       _isPenalizeJeep = preferences.isPenalized(VehicleType.jeep);
+      _isPenalizeEjeep = preferences.isPenalized(VehicleType.ejeep);
       _isPenalizeBus = preferences.isPenalized(VehicleType.bus);
       _isPenalizeUvExpress = preferences.isPenalized(VehicleType.uvExpress);
     });
@@ -92,6 +94,9 @@ class _ProfilePageState extends State<ProfilePage> {
           break;
         case VehicleType.jeep:
           _isPenalizeJeep = penalized;
+          break;
+        case VehicleType.ejeep:
+          _isPenalizeEjeep = penalized;
           break;
         case VehicleType.bus:
           _isPenalizeBus = penalized;
@@ -268,6 +273,13 @@ class _ProfilePageState extends State<ProfilePage> {
           label: 'Avoid Jeep',
           value: _isPenalizeJeep,
           onChanged: (value) => _setVehiclePreference(VehicleType.jeep, value),
+        ),
+        _buildSwitchTab(
+          icon: Icons.electric_rickshaw,
+          label: 'Avoid E-Jeep',
+          value: _isPenalizeEjeep,
+          onChanged: (value) =>
+              _setVehiclePreference(VehicleType.ejeep, value),
         ),
         _buildSwitchTab(
           icon: Icons.directions_bus,
