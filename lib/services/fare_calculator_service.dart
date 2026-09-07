@@ -7,6 +7,11 @@ class FareCalculatorService {
   static final FareCalculatorService instance = FareCalculatorService._();
   FareCalculatorService._();
 
+
+  static const Set<String> _freeBusRouteIds = {
+    'LTFRB_PUB5',
+  };
+
   final SupabaseClient _client = Supabase.instance.client;
   final Map<String, Map<String, dynamic>> _distanceFareCache = {};
   final Map<String, double> _trainFareCache = {};
@@ -35,6 +40,11 @@ class FareCalculatorService {
     String? fareType,
   }) async {
     await initialize();
+    if (leg.vehicleType == VehicleType.bus &&
+        _freeBusRouteIds.contains(leg.routeId)) {
+      return 0.0;
+    }
+
     final selectedFareType =
         fareType ?? (_useDiscountedFare ? 'DISCOUNTED' : 'STANDARD');
     switch (leg.vehicleType) {

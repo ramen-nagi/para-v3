@@ -40,6 +40,7 @@ class Leg {
   final String fromStopName;
   final String toStopName;
   final String? routeId;
+  final String? raptorRouteId;
   final String? tripId;
   final String? routeLongName;
   final VehicleType vehicleType;
@@ -57,6 +58,7 @@ class Leg {
     required this.toStopName,
     required this.vehicleType,
     this.routeId,
+    this.raptorRouteId,
     this.tripId,
     this.routeLongName,
     this.coordinates,
@@ -75,6 +77,7 @@ class Leg {
     'fromStopName': fromStopName,
     'toStopName': toStopName,
     'routeId': routeId,
+    'raptorRouteId': raptorRouteId,
     'tripId': tripId,
     'routeLongName': routeLongName,
     'vehicleType': vehicleType.rawValue,
@@ -92,12 +95,17 @@ class Leg {
     final coordinateValues = json['coordinates'] as List?;
     final trafficValues = json['traffic'] as List?;
     final stepValues = json['steps'] as List?;
+    final serializedRouteId = json['routeId'] as String?;
+    final legacySourceRouteId = json['sourceRouteId'] as String?;
     return Leg(
       fromStopId: json['fromStopId'] as String,
       toStopId: json['toStopId'] as String,
       fromStopName: json['fromStopName'] as String,
       toStopName: json['toStopName'] as String,
-      routeId: json['routeId'] as String?,
+      routeId: legacySourceRouteId ?? serializedRouteId,
+      raptorRouteId:
+          json['raptorRouteId'] as String? ??
+          (legacySourceRouteId == null ? null : serializedRouteId),
       tripId: json['tripId'] as String?,
       routeLongName: json['routeLongName'] as String?,
       vehicleType: VehicleType.fromInt((json['vehicleType'] as num).toInt()),
@@ -157,6 +165,7 @@ class Journey {
 
 class RaptorRoute {
   final String routeId;
+  final String raptorRouteId;
   final String tripId;
   final String routeLongName;
   final VehicleType vehicleType;
@@ -165,6 +174,7 @@ class RaptorRoute {
 
   RaptorRoute({
     required this.routeId,
+    required this.raptorRouteId,
     required this.tripId,
     required this.routeLongName,
     required this.vehicleType,
@@ -195,10 +205,10 @@ class _ResultMeta {
 
 class _Parent {
   final String fromStopId;
-  final String? routeId;
+  final String? raptorRouteId;
   final double? distance;
 
-  _Parent({required this.fromStopId, this.routeId, this.distance});
+  _Parent({required this.fromStopId, this.raptorRouteId, this.distance});
 }
 
 class RaptorPathfindingService {
@@ -257,7 +267,7 @@ class RaptorPathfindingService {
     // 1. Gather all unique stops and RaptorRoutes
     final Map<String, StopsAndStopTimesModel> allStops = {};
     final List<RaptorRoute> allRoutes = [];
-    final Map<String, RaptorRoute> routesById = {};
+    final Map<String, RaptorRoute> routesByRaptorId = {};
     final Set<String> seenSequences = {};
 
     for (final route in GtfsNetworkService.instance.routesMap.values) {
@@ -292,7 +302,8 @@ class RaptorPathfindingService {
 
           final raptorRouteId = '${route.routeId}_p${seenSequences.length}';
           final rr = RaptorRoute(
-            routeId: raptorRouteId,
+            routeId: route.routeId,
+            raptorRouteId: raptorRouteId,
             tripId: trip.tripId,
             routeLongName: route.routeLongName,
             vehicleType: route.vehicleType,
@@ -300,7 +311,7 @@ class RaptorPathfindingService {
             cumulativeDistances: cumulativeDistances,
           );
           allRoutes.add(rr);
-          routesById[raptorRouteId] = rr;
+          routesByRaptorId[raptorRouteId] = rr;
         }
       }
     }
@@ -361,10 +372,10 @@ class RaptorPathfindingService {
     final Map<String, List<double>> routeDistances = {};
 
     for (final rr in allRoutes) {
-      stopsByRoute[rr.routeId] = rr.stops.map((s) => s.stopId).toList();
-      routeDistances[rr.routeId] = rr.cumulativeDistances;
+      stopsByRoute[rr.raptorRouteId] = rr.stops.map((s) => s.stopId).toList();
+      routeDistances[rr.raptorRouteId] = rr.cumulativeDistances;
       for (final stop in rr.stops) {
-        routesByStop.putIfAbsent(stop.stopId, () => []).add(rr.routeId);
+        routesByStop.putIfAbsent(stop.stopId, () => []).add(rr.raptorRouteId);
       }
     }
 
@@ -462,7 +473,7 @@ class RaptorPathfindingService {
       roundCosts[0][transfer.toStopId] = realWalkingDist;
       parents[transfer.toStopId] = _Parent(
         fromStopId: "__ORIGIN__",
-        routeId: null,
+        raptorRouteId: null,
         distance: realWalkingDist,
       );
       markedStops.add(transfer.toStopId);
@@ -551,10 +562,10 @@ class RaptorPathfindingService {
       markedStops.clear();
 
       for (var entry in routesToProcess.entries) {
-        final routeId = entry.key;
+        final raptorRouteId = entry.key;
         final startStopId = entry.value;
-        final stops = stopsByRoute[routeId]!;
-        final dists = routeDistances[routeId]!;
+        final stops = stopsByRoute[raptorRouteId]!;
+        final dists = routeDistances[raptorRouteId]!;
         final startIdx = stops.indexOf(startStopId);
 
         bool boarding = false;
@@ -584,9 +595,9 @@ class RaptorPathfindingService {
           if (boarding && stopId != boardingStopId) {
             final transitDist = currentDistOnRoute - distAtBoarding;
 
-            final rr = routesById[routeId];
+            final rr = routesByRaptorId[raptorRouteId];
             final isTrain =
-                routeId.startsWith('ROUTE') ||
+                raptorRouteId.startsWith('ROUTE') ||
                 (rr?.vehicleType == VehicleType.train);
             final effectiveWeight = isTrain
                 ? (_transitCostWeight / _trainCostDivisor)
@@ -603,7 +614,7 @@ class RaptorPathfindingService {
               roundCosts[currentRound][stopId] = arrivalCost;
               parents[stopId] = _Parent(
                 fromStopId: boardingStopId!,
-                routeId: routeId,
+                raptorRouteId: raptorRouteId,
               );
               markedStops.add(stopId);
             }
@@ -623,7 +634,7 @@ class RaptorPathfindingService {
             roundCosts[currentRound][transfer.toStopId] = newTotalCost;
             parents[transfer.toStopId] = _Parent(
               fromStopId: stopId,
-              routeId: null,
+              raptorRouteId: null,
               distance: realTransferDist,
             );
             newlyMarkedByWalk.add(transfer.toStopId);
@@ -667,7 +678,7 @@ class RaptorPathfindingService {
       // Keep the cheapest candidate per distinct arrival route this round.
       final seenRoutesThisRound = <String>{};
       for (final meta in roundReachable) {
-        final arrivalRoute = parents[meta.stopId]?.routeId ?? 'walk';
+        final arrivalRoute = parents[meta.stopId]?.raptorRouteId ?? 'walk';
         if (seenRoutesThisRound.add(arrivalRoute)) {
           candidates['${arrivalRoute}_r$currentRound'] = meta;
         }
@@ -742,7 +753,7 @@ class RaptorPathfindingService {
           meta.finalDist,
           meta.parents,
           allStops,
-          routesById,
+          routesByRaptorId,
         );
       }
 
@@ -800,7 +811,7 @@ class RaptorPathfindingService {
     double lastDist,
     Map<String, _Parent> parents,
     Map<String, StopsAndStopTimesModel> allStops,
-    Map<String, RaptorRoute> routesById,
+    Map<String, RaptorRoute> routesByRaptorId,
   ) {
     final legs = <Leg>[];
 
@@ -821,7 +832,7 @@ class RaptorPathfindingService {
       final parent = parents[currentStopId];
       if (parent == null) break;
 
-      final isWalking = parent.routeId == null;
+      final isWalking = parent.raptorRouteId == null;
       final fromStop = parent.fromStopId == "__ORIGIN__"
           ? null
           : allStops[parent.fromStopId];
@@ -840,7 +851,7 @@ class RaptorPathfindingService {
           ),
         );
       } else {
-        final rr = routesById[parent.routeId!];
+        final rr = routesByRaptorId[parent.raptorRouteId!];
 
         // Calculate transit distance along the route
         double transitDist = 0.0;
@@ -860,7 +871,8 @@ class RaptorPathfindingService {
           Leg(
             fromStopId: parent.fromStopId,
             toStopId: currentStopId,
-            routeId: parent.routeId!,
+            routeId: rr?.routeId,
+            raptorRouteId: parent.raptorRouteId,
             tripId: rr?.tripId ?? '',
             distance: transitDist,
             routeLongName: rr?.routeLongName ?? 'Unknown Route',
