@@ -162,12 +162,13 @@ class _CommutePageState extends State<CommutePage> {
     }
     final preferences = CommutePreferencesService.instance;
     await preferences.initialize();
-    final journeys = RaptorPathfindingService.instance.findJourneys(
+    final journeys = await RaptorPathfindingService.instance.findJourneys(
       originLat: origin.lat.toDouble(),
       originLng: origin.lng.toDouble(),
       destLat: destination.lat.toDouble(),
       destLng: destination.lng.toDouble(),
       penalizedVehicleTypes: preferences.penalizedVehicleTypes,
+      walkingDistanceResolver: MapMatchingService.fetchWalkingDistances,
     );
 
     for (final journey in journeys) {
@@ -780,11 +781,13 @@ class _CommutePageState extends State<CommutePage> {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      elevation: 0,
+      color: colorScheme.surfaceContainerLowest,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: colorScheme.shadow.withValues(alpha: 0.24),
+      elevation: 4,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: colorScheme.outlineVariant),
       ),
       child: InkWell(
         onTap: () async {
@@ -869,7 +872,7 @@ class _CommutePageState extends State<CommutePage> {
               Container(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerLowest,
+                  color: colorScheme.surfaceContainerLow,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(

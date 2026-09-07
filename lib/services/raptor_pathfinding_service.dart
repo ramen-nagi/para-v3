@@ -3,6 +3,13 @@ import 'package:flutter/foundation.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 
+typedef WalkingDistanceResolver =
+    Future<Map<String, double>> Function(
+      Position anchor,
+      Map<String, Position> destinations, {
+      bool pointsToAnchor,
+    });
+
 class NavigationStep {
   final String instruction;
   final double? distanceMeters;
@@ -212,6 +219,7 @@ class RaptorPathfindingService {
   static const int _maxRounds = 6;
   static const int _maxResults = 3;
   static const int _maxCandidatesPerRoute = 5;
+  static const int _maxRoadDistanceCandidates = 48;
   // ─────────────────────────────────────────────────────────────────────────
 
   // Haversine formula to compute distance in meters between two points
@@ -233,13 +241,14 @@ class RaptorPathfindingService {
     return degree * math.pi / 180;
   }
 
-  List<Journey> findJourneys({
+  Future<List<Journey>> findJourneys({
     required double originLat,
     required double originLng,
     required double destLat,
     required double destLng,
     Set<VehicleType> penalizedVehicleTypes = const {},
-  }) {
+    WalkingDistanceResolver? walkingDistanceResolver,
+  }) async {
     if (!GtfsNetworkService.instance.isLoaded) {
       debugPrint('RAPTOR Error: GTFS dataset not loaded yet.');
       return [];
@@ -323,8 +332,14 @@ class RaptorPathfindingService {
       final int latKey = (lat * 100).floor();
       final int lonKey = (lon * 100).floor();
 
-      for (int dl = -1; dl <= 1; dl++) {
-        for (int dg = -1; dg <= 1; dg++) {
+      final latCellRadius = (maxDist / 110540).ceil();
+      final longitudeMetersPerDegree = 111320 * math.cos(_toRadians(lat)).abs();
+      final lonCellRadius = longitudeMetersPerDegree < 1
+          ? latCellRadius
+          : (maxDist / longitudeMetersPerDegree).ceil();
+
+      for (int dl = -latCellRadius; dl <= latCellRadius; dl++) {
+        for (int dg = -lonCellRadius; dg <= lonCellRadius; dg++) {
           final cellKey = '${latKey + dl},${lonKey + dg}';
           final cellStops = stopGrid[cellKey];
           if (cellStops != null) {
@@ -411,9 +426,38 @@ class RaptorPathfindingService {
       }
     }
 
+    originNearby.sort((a, b) => a.distance.compareTo(b.distance));
+    if (originNearby.length > _maxRoadDistanceCandidates) {
+      originNearby = originNearby.sublist(0, _maxRoadDistanceCandidates);
+    }
+
+    const directDestinationKey = '__DIRECT_DESTINATION__';
+    var originRoadDistances = <String, double>{};
+    if (walkingDistanceResolver != null) {
+      final endpointPositions = <String, Position>{
+        for (final transfer in originNearby)
+          transfer.toStopId: Position(
+            allStops[transfer.toStopId]!.stopLon,
+            allStops[transfer.toStopId]!.stopLat,
+          ),
+        directDestinationKey: Position(destLng, destLat),
+      };
+      try {
+        originRoadDistances = await walkingDistanceResolver(
+          Position(originLng, originLat),
+          endpointPositions,
+        );
+      } catch (error) {
+        debugPrint('Walking-distance lookup failed; using estimates: $error');
+      }
+    }
+
     var markedStops = <String>{};
     for (var transfer in originNearby) {
-      final realWalkingDist = transfer.distance * _walkCircuityFactor;
+      final realWalkingDist =
+          originRoadDistances[transfer.toStopId] ??
+          transfer.distance * _walkCircuityFactor;
+      if (realWalkingDist > _maxWalkingRadius) continue;
       bestCostOverall[transfer.toStopId] = realWalkingDist;
       roundCosts[0][transfer.toStopId] = realWalkingDist;
       parents[transfer.toStopId] = _Parent(
@@ -431,14 +475,58 @@ class RaptorPathfindingService {
 
     // --- Direct Walk Option ---
     final directWalkDist =
+        originRoadDistances[directDestinationKey] ??
         computeDistance(originLat, originLng, destLat, destLng) *
-        _walkCircuityFactor;
+            _walkCircuityFactor;
     candidates["__DIRECT__"] = _ResultMeta(
       stopId: "__DIRECT__",
       totalCost: directWalkDist,
       finalDist: directWalkDist,
       parents: {},
     );
+
+    var destinationNearby =
+        getNearbyStops(
+            destLat,
+            destLng,
+            _maxWalkingRadius,
+          ).map((stop) {
+            return Transfer(
+              toStopId: stop.stopId,
+              distance: computeDistance(
+                destLat,
+                destLng,
+                stop.stopLat,
+                stop.stopLon,
+              ),
+            );
+          }).toList()
+          ..sort((a, b) => a.distance.compareTo(b.distance));
+    if (destinationNearby.length > _maxRoadDistanceCandidates) {
+      destinationNearby = destinationNearby.sublist(
+        0,
+        _maxRoadDistanceCandidates,
+      );
+    }
+
+    var destinationRoadDistances = <String, double>{};
+    if (walkingDistanceResolver != null && destinationNearby.isNotEmpty) {
+      try {
+        destinationRoadDistances = await walkingDistanceResolver(
+          Position(destLng, destLat),
+          {
+            for (final transfer in destinationNearby)
+              transfer.toStopId: Position(
+                allStops[transfer.toStopId]!.stopLon,
+                allStops[transfer.toStopId]!.stopLat,
+              ),
+          },
+          pointsToAnchor: true,
+        );
+      } catch (error) {
+        debugPrint('Destination walking-distance lookup failed: $error');
+      }
+    }
 
     while (markedStops.isNotEmpty && currentRound < _maxRounds) {
       currentRound++;
@@ -552,8 +640,17 @@ class RaptorPathfindingService {
         if (costToStop >= infinity) continue;
 
         final stop = allStops[stopId]!;
-        final d = computeDistance(stop.stopLat, stop.stopLon, destLat, destLng);
-        if (d <= _maxWalkingRadius) {
+        final straightLineDistance = computeDistance(
+          stop.stopLat,
+          stop.stopLon,
+          destLat,
+          destLng,
+        );
+        final d =
+            destinationRoadDistances[stopId] ??
+            straightLineDistance * _walkCircuityFactor;
+        if (straightLineDistance <= _maxWalkingRadius &&
+            d <= _maxWalkingRadius) {
           roundReachable.add(
             _ResultMeta(
               stopId: stopId,
@@ -590,9 +687,17 @@ class RaptorPathfindingService {
         if (costToStop >= infinity) continue;
 
         final stop = allStops[stopId]!;
-        final d = computeDistance(stop.stopLat, stop.stopLon, destLat, destLng);
-        if (d <= 5000.0) {
-          final realWalkDist = d * _walkCircuityFactor;
+        final straightLineDistance = computeDistance(
+          stop.stopLat,
+          stop.stopLon,
+          destLat,
+          destLng,
+        );
+        if (straightLineDistance <= _maxWalkingRadius) {
+          final realWalkDist =
+              destinationRoadDistances[stopId] ??
+              straightLineDistance * _walkCircuityFactor;
+          if (realWalkDist > _maxWalkingRadius) continue;
           final totalCost = costToStop + realWalkDist;
           if (totalCost < fallbackCost) {
             fallbackCost = totalCost;
@@ -616,6 +721,7 @@ class RaptorPathfindingService {
 
     final sortedMetas = candidates.values.toList()
       ..sort((a, b) => a.totalCost.compareTo(b.totalCost));
+    final seenJourneySignatures = <String>{};
 
     for (var meta in sortedMetas) {
       Journey journey;
@@ -640,6 +746,10 @@ class RaptorPathfindingService {
         );
       }
 
+      journey = _mergeAdjacentWalkingLegs(journey);
+      if (!seenJourneySignatures.add(_journeySignature(journey))) {
+        continue;
+      }
       allJourneys.add(journey);
 
       if (allJourneys.length >= _maxResults) break;
@@ -647,6 +757,43 @@ class RaptorPathfindingService {
 
     return allJourneys;
   }
+
+  Journey _mergeAdjacentWalkingLegs(Journey journey) {
+    final merged = <Leg>[];
+
+    for (final leg in journey.legs) {
+      if (merged.isNotEmpty && merged.last.isWalking && leg.isWalking) {
+        final previous = merged.removeLast();
+        merged.add(
+          Leg(
+            fromStopId: previous.fromStopId,
+            toStopId: leg.toStopId,
+            fromStopName: previous.fromStopName,
+            toStopName: leg.toStopName,
+            vehicleType: VehicleType.walk,
+            distance: (previous.distance ?? 0) + (leg.distance ?? 0),
+          ),
+        );
+      } else {
+        merged.add(leg);
+      }
+    }
+
+    return Journey(
+      merged,
+      originMainText: journey.originMainText,
+      destinationMainText: journey.destinationMainText,
+    );
+  }
+
+  String _journeySignature(Journey journey) => journey.legs
+      .map((leg) {
+        if (leg.isWalking) {
+          return 'walk:${leg.fromStopId}>${leg.toStopId}';
+        }
+        return 'ride:${leg.routeId}:${leg.fromStopId}>${leg.toStopId}';
+      })
+      .join('|');
 
   Journey _reconstructSingleJourney(
     String lastStopId,

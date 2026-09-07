@@ -25,6 +25,92 @@ class RouteMetadataResult {
 }
 
 class MapMatchingService {
+  static const int _matrixDestinationsPerRequest = 24;
+
+  /// Returns pedestrian-network distances between [anchor] and each keyed
+  /// point. Set [pointsToAnchor] for point-to-anchor routing.
+  /// Mapbox's walking matrix accepts at most 25 coordinates, so larger sets
+  /// are split into batches containing one start and up to 24 destinations.
+  static Future<Map<String, double>> fetchWalkingDistances(
+    Position anchor,
+    Map<String, Position> destinations, {
+    bool pointsToAnchor = false,
+  }) async {
+    final accessToken = dotenv.env['MAPBOX_ACCESS_TOKEN'];
+    if (accessToken == null || accessToken.isEmpty || destinations.isEmpty) {
+      return {};
+    }
+
+    final entries = destinations.entries.toList();
+    final resolved = <String, double>{};
+
+    for (
+      var offset = 0;
+      offset < entries.length;
+      offset += _matrixDestinationsPerRequest
+    ) {
+      final end = math.min(
+        offset + _matrixDestinationsPerRequest,
+        entries.length,
+      );
+      final batch = entries.sublist(offset, end);
+      final coordinates = <Position>[
+        anchor,
+        ...batch.map((entry) => entry.value),
+      ];
+      final formattedCoordinates = coordinates
+          .map((position) => '${position.lng},${position.lat}')
+          .join(';');
+      final destinationIndexes = List.generate(
+        batch.length,
+        (index) => index + 1,
+      ).join(';');
+      final sources = pointsToAnchor ? destinationIndexes : '0';
+      final destinationQuery = pointsToAnchor ? '0' : destinationIndexes;
+      final uri = Uri.parse(
+        'https://api.mapbox.com/directions-matrix/v1/mapbox/walking/'
+        '$formattedCoordinates'
+        '?sources=$sources'
+        '&destinations=$destinationQuery'
+        '&annotations=distance'
+        '&access_token=$accessToken',
+      );
+
+      try {
+        final response = await http.get(uri);
+        if (response.statusCode != 200) {
+          debugPrint(
+            'Mapbox walking matrix failed '
+            '(${response.statusCode}): ${response.body}',
+          );
+          continue;
+        }
+
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final rows = data['distances'] as List?;
+        if (rows == null || rows.isEmpty) continue;
+
+        for (var index = 0; index < batch.length; index++) {
+          final row = pointsToAnchor
+              ? (index < rows.length ? rows[index] as List? : null)
+              : rows.first as List?;
+          final value = pointsToAnchor
+              ? (row?.isNotEmpty == true ? row!.first : null)
+              : (index < (row?.length ?? 0) ? row![index] : null);
+          if (value is num) {
+            resolved[batch[index].key] = value.toDouble();
+          } else {
+            resolved[batch[index].key] = double.infinity;
+          }
+        }
+      } catch (error) {
+        debugPrint('Error requesting Mapbox walking matrix: $error');
+      }
+    }
+
+    return resolved;
+  }
+
   static Future<RouteMetadataResult?> fetchWalkingDirections(
     Position start,
     Position end,

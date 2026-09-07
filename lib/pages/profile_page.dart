@@ -257,39 +257,39 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         _buildSwitchTab(
           icon: Icons.pedal_bike,
-          label: 'Avoid Tricycle',
+          label: 'Less Tricycle',
           value: _isPenalizeTricycle,
           onChanged: (value) =>
               _setVehiclePreference(VehicleType.tricycle, value),
         ),
         _buildSwitchTab(
           icon: Icons.train,
-          label: 'Avoid Train',
+          label: 'Less Train',
           value: _isPenalizeTrain,
           onChanged: (value) => _setVehiclePreference(VehicleType.train, value),
         ),
         _buildSwitchTab(
           icon: Icons.airport_shuttle,
-          label: 'Avoid Jeep',
+          label: 'Less Jeep',
           value: _isPenalizeJeep,
           onChanged: (value) => _setVehiclePreference(VehicleType.jeep, value),
         ),
         _buildSwitchTab(
           icon: Icons.electric_rickshaw,
-          label: 'Avoid E-Jeep',
+          label: 'Less E-Jeep',
           value: _isPenalizeEjeep,
           onChanged: (value) =>
               _setVehiclePreference(VehicleType.ejeep, value),
         ),
         _buildSwitchTab(
           icon: Icons.directions_bus,
-          label: 'Avoid Bus',
+          label: 'Less Bus',
           value: _isPenalizeBus,
           onChanged: (value) => _setVehiclePreference(VehicleType.bus, value),
         ),
         _buildSwitchTab(
           icon: Icons.directions_car,
-          label: 'Avoid UV Express',
+          label: 'Less UV Express',
           value: _isPenalizeUvExpress,
           onChanged: (value) =>
               _setVehiclePreference(VehicleType.uvExpress, value),
