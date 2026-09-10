@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:para_v3/module/profile_item_section.dart';
 import 'package:para_v3/module/appbar.dart';
+import 'package:para_v3/module/universal_alert_dialog.dart';
 import 'package:para_v3/pages/profile_page_privacy_policy.dart';
 import 'package:para_v3/pages/profile_page_terms_of_service.dart';
 import 'package:para_v3/pages/profile_page_about.dart';
@@ -19,6 +20,7 @@ import 'package:para_v3/services/fare_calculator_service.dart';
 import 'package:para_v3/services/commute_preferences_service.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'package:para_v3/services/raptor_pathfinding_service.dart';
+import 'package:para_v3/services/auth_service.dart';
 
 class ProfilePage extends StatefulWidget {
   final bool isDarkMode;
@@ -118,12 +120,6 @@ class _ProfilePageState extends State<ProfilePage> {
     super.dispose();
   }
 
-  void _comingSoon() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('This feature is coming soon.')),
-    );
-  }
-
   void _open(Widget page) {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
   }
@@ -162,6 +158,31 @@ class _ProfilePageState extends State<ProfilePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Password verification failed: ${error.message}'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteAccount() async {
+    final password = await showDialog<String>(
+      context: context,
+      builder: (_) => const _DeleteAccountDialog(),
+    );
+    if (!mounted || password == null || password.isEmpty) return;
+
+    try {
+      await SupabaseAuthService.instance.deleteAccount(password);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Your account was permanently deleted.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            authErrorMessage(error, fallback: 'Unable to delete your account.'),
+          ),
         ),
       );
     }
@@ -278,8 +299,7 @@ class _ProfilePageState extends State<ProfilePage> {
           icon: Icons.electric_rickshaw,
           label: 'Less E-Jeep',
           value: _isPenalizeEjeep,
-          onChanged: (value) =>
-              _setVehiclePreference(VehicleType.ejeep, value),
+          onChanged: (value) => _setVehiclePreference(VehicleType.ejeep, value),
         ),
         _buildSwitchTab(
           icon: Icons.directions_bus,
@@ -402,7 +422,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ProfileTabs(
             icon: Icons.delete_outline,
             label: 'Delete Account',
-            onTap: _comingSoon,
+            onTap: _deleteAccount,
           ),
           ProfileTabs(
             icon: Icons.logout,
@@ -497,9 +517,9 @@ class _CurrentPasswordDialogState extends State<_CurrentPasswordDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Verify your password'),
-      content: TextField(
+    return UniversalAlertDialog(
+      title: 'Verify your password',
+      contentWidget: TextField(
         controller: _passwordController,
         obscureText: true,
         autofocus: true,
@@ -508,7 +528,7 @@ class _CurrentPasswordDialogState extends State<_CurrentPasswordDialog> {
           border: OutlineInputBorder(),
         ),
       ),
-      actions: [
+      customActions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
@@ -520,4 +540,70 @@ class _CurrentPasswordDialogState extends State<_CurrentPasswordDialog> {
       ],
     );
   }
+}
+
+class _DeleteAccountDialog extends StatefulWidget {
+  const _DeleteAccountDialog();
+
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  final _passwordController = TextEditingController();
+  bool _confirmed = false;
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => UniversalAlertDialog(
+    title: 'Permanently delete account?',
+    contentWidget: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'This cannot be undone. Your contributions will remain but will no longer identify your account.',
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _passwordController,
+            obscureText: true,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Current password',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _confirmed,
+            onChanged: (value) => setState(() => _confirmed = value ?? false),
+            title: const Text('I understand this is permanent.'),
+            controlAffinity: ListTileControlAffinity.leading,
+          ),
+        ],
+      ),
+    ),
+    customActions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: !_confirmed || _passwordController.text.isEmpty
+            ? null
+            : () => Navigator.of(context).pop(_passwordController.text),
+        style: FilledButton.styleFrom(
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+        child: const Text('Delete permanently'),
+      ),
+    ],
+  );
 }

@@ -2,21 +2,28 @@ import 'package:flutter/material.dart';
 
 class UniversalAlertDialog extends StatelessWidget {
   final String title;
-  final String content;
+  final String? content;
+  final Widget? contentWidget;
   final String? primaryButtonText;
   final VoidCallback? onPrimaryPressed;
   final String? secondaryButtonText;
   final VoidCallback? onSecondaryPressed;
+  final List<Widget>? customActions;
 
   const UniversalAlertDialog({
     super.key,
     required this.title,
-    required this.content,
+    this.content,
+    this.contentWidget,
     this.primaryButtonText,
     this.onPrimaryPressed,
     this.secondaryButtonText,
     this.onSecondaryPressed,
-  });
+    this.customActions,
+  }) : assert(
+         content != null || contentWidget != null,
+         'Provide either content or contentWidget.',
+       );
 
   static Future<void> show({
     required BuildContext context,
@@ -47,6 +54,15 @@ class UniversalAlertDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dialogContent = contentWidget ?? Text(content!);
+    if (customActions != null) {
+      return AlertDialog(
+        title: Text(title),
+        content: dialogContent,
+        actions: customActions,
+      );
+    }
+
     final actions = <Widget>[];
     if (secondaryButtonText != null) {
       actions.add(
@@ -67,7 +83,7 @@ class UniversalAlertDialog extends StatelessWidget {
 
     return AlertDialog(
       title: Text(title),
-      content: Text(content),
+      content: dialogContent,
       actions: actions,
     );
   }
