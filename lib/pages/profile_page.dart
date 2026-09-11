@@ -444,7 +444,7 @@ class _ProfilePageState extends State<ProfilePage> {
           const ProfileTabs(
             icon: Icons.person_outline,
             label: 'Guest User',
-            // TODO: Remove trailing here
+            trailing: null,
           ),
           ProfileTabs(
             icon: Icons.login,

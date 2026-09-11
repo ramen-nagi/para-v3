@@ -1634,7 +1634,7 @@ class _CommutePageState extends State<CommutePage> {
 
         if (_sheetView == _CommuteSheetView.journeyOverviews)
           Positioned(
-            top: 25,
+            top: 40,
             left: 8,
             right: 8,
             child: LocationTextfield(

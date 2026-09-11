@@ -220,7 +220,7 @@ class RaptorPathfindingService {
   // ── Algorithm tuning constants ───────────────────────────────────────────
   static const double _maxWalkingRadius = 5000.0; // meters, dest walk limit
   static const double _transitCostWeight = 0.05; // cost per meter on transit
-  static const double _transferPenalty = 500.0; // discourages extra transfers
+  static const double _transferPenalty = 750.0; // discourages extra transfers
   static const double _walkCircuityFactor = 1.4; // straight-line → city-block
   static const double _trainCostDivisor =
       1.7; // trains cheaper relative to cost

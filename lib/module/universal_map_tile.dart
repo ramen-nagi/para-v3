@@ -27,6 +27,7 @@ class UniversalMapTile extends StatefulWidget {
 class _UniversalMapTileState extends State<UniversalMapTile> {
   static const _maxVisibleSheetExtent = 0.221;
   static const _mapButtonStackHeight = 104.0;
+  static const _scaleBarTopMargin = 19.0;
   static const _trafficSourceId = 'mapbox-traffic-source';
   static const _trafficLayerId = 'mapbox-traffic-layer';
   static const _lightStyleUri = 'mapbox://styles/mapbox/streets-v12';
@@ -79,6 +80,9 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
     await map.logo.updateSettings(LogoSettings(marginBottom: bottomMargin));
     await map.attribution.updateSettings(
       AttributionSettings(marginBottom: bottomMargin),
+    );
+    await map.scaleBar.updateSettings(
+      ScaleBarSettings(marginTop: _scaleBarTopMargin),
     );
     await map.compass.updateSettings(
       CompassSettings(
