@@ -30,7 +30,7 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
   static const _scaleBarTopMargin = 19.0;
   static const _trafficSourceId = 'mapbox-traffic-source';
   static const _trafficLayerId = 'mapbox-traffic-layer';
-  static const _lightStyleUri = 'mapbox://styles/mapbox/streets-v12';
+  static const _lightStyleUri = 'mapbox://styles/mapbox/standard';
   static const _darkStyleUri = 'mapbox://styles/mapbox/dark-v11';
 
   final _locationPermissionService = const LocationPermissionService();
