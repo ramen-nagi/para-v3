@@ -67,6 +67,8 @@ class MapMatchingService {
           : math.min(_matrixDestinationsPerRequest, remaining);
       final end = offset + batchSize;
       final batch = entries.sublist(offset, end);
+      // Advance before any error/empty-response continue in this batch.
+      offset = end;
       final coordinates = <Position>[
         anchor,
         ...batch.map((entry) => entry.value),
@@ -119,8 +121,6 @@ class MapMatchingService {
       } catch (error) {
         debugPrint('Error requesting Mapbox walking matrix: $error');
       }
-
-      offset = end;
     }
 
     return resolved;
@@ -171,8 +171,8 @@ class MapMatchingService {
           .toList();
       final steps = <NavigationStep>[];
       for (final leg in route['legs'] as List? ?? const []) {
-        for (final step in (leg as Map<String, dynamic>)['steps'] as List? ??
-            const []) {
+        for (final step
+            in (leg as Map<String, dynamic>)['steps'] as List? ?? const []) {
           final stepData = step as Map<String, dynamic>;
           final maneuver = stepData['maneuver'] as Map<String, dynamic>?;
           final instruction = maneuver?['instruction'] as String?;
@@ -290,11 +290,13 @@ class MapMatchingService {
             final maneuver = stepData['maneuver'] as Map<String, dynamic>?;
             final instruction = maneuver?['instruction'] as String?;
             if (instruction == null || instruction.isEmpty) continue;
-            navigationSteps.add(NavigationStep(
-              instruction: instruction,
-              distanceMeters: (stepData['distance'] as num?)?.toDouble(),
-              durationSeconds: (stepData['duration'] as num?)?.toDouble(),
-            ));
+            navigationSteps.add(
+              NavigationStep(
+                instruction: instruction,
+                distanceMeters: (stepData['distance'] as num?)?.toDouble(),
+                durationSeconds: (stepData['duration'] as num?)?.toDouble(),
+              ),
+            );
           }
         }
       }
@@ -320,11 +322,9 @@ class MapMatchingService {
 
   static Future<RouteMetadataResult> fetchRouteMetadataResultTrain(
     VehicleType vehicleType,
-    List<Position> shapeCoordinates,
-    {
+    List<Position> shapeCoordinates, {
     String? routeId,
-    }
-  ) async {
+  }) async {
     var distanceMeters = 0.0;
     for (var index = 1; index < shapeCoordinates.length; index++) {
       distanceMeters += _straightLineDistanceMeters(

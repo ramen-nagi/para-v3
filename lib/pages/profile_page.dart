@@ -239,12 +239,14 @@ class _ProfilePageState extends State<ProfilePage> {
   ProfileTabs _buildSwitchTab({
     required IconData icon,
     required String label,
+    String? subtitle,
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
     return ProfileTabs(
       icon: icon,
       label: label,
+      subtitle: subtitle,
       trailing: Switch(value: value, onChanged: onChanged),
     );
   }
@@ -264,6 +266,8 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   ProfileSection _buildCommuteSettingsSection() {
+    String vehiclePreferenceSubtitle = 'Off means less likely to appear';
+
     return ProfileSection(
       title: 'Commute Settings',
       items: [
@@ -278,41 +282,47 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         _buildSwitchTab(
           icon: Icons.pedal_bike,
-          label: 'Less Tricycle',
-          value: _isPenalizeTricycle,
+          label: 'Tricycle',
+          subtitle: vehiclePreferenceSubtitle,
+          value: !_isPenalizeTricycle,
           onChanged: (value) =>
-              _setVehiclePreference(VehicleType.tricycle, value),
+              _setVehiclePreference(VehicleType.tricycle, !value),
         ),
         _buildSwitchTab(
           icon: Icons.train,
-          label: 'Less Train',
-          value: _isPenalizeTrain,
-          onChanged: (value) => _setVehiclePreference(VehicleType.train, value),
+          label: 'Train',
+          subtitle: vehiclePreferenceSubtitle,
+          value: !_isPenalizeTrain,
+          onChanged: (value) => _setVehiclePreference(VehicleType.train, !value),
         ),
         _buildSwitchTab(
           icon: Icons.airport_shuttle,
-          label: 'Less Jeep',
-          value: _isPenalizeJeep,
-          onChanged: (value) => _setVehiclePreference(VehicleType.jeep, value),
+          label: 'Jeep',
+          subtitle: vehiclePreferenceSubtitle,
+          value: !_isPenalizeJeep,
+          onChanged: (value) => _setVehiclePreference(VehicleType.jeep, !value),
         ),
         _buildSwitchTab(
           icon: Icons.electric_rickshaw,
-          label: 'Less E-Jeep',
-          value: _isPenalizeEjeep,
-          onChanged: (value) => _setVehiclePreference(VehicleType.ejeep, value),
+          label: 'E-Jeep',
+          subtitle: vehiclePreferenceSubtitle,
+          value: !_isPenalizeEjeep,
+          onChanged: (value) => _setVehiclePreference(VehicleType.ejeep, !value),
         ),
         _buildSwitchTab(
           icon: Icons.directions_bus,
-          label: 'Less Bus',
-          value: _isPenalizeBus,
-          onChanged: (value) => _setVehiclePreference(VehicleType.bus, value),
+          label: 'Bus',
+          subtitle: vehiclePreferenceSubtitle,
+          value: !_isPenalizeBus,
+          onChanged: (value) => _setVehiclePreference(VehicleType.bus, !value),
         ),
         _buildSwitchTab(
           icon: Icons.directions_car,
-          label: 'Less UV Express',
-          value: _isPenalizeUvExpress,
+          label: 'UV Express',
+          subtitle: vehiclePreferenceSubtitle,
+          value: !_isPenalizeUvExpress,
           onChanged: (value) =>
-              _setVehiclePreference(VehicleType.uvExpress, value),
+              _setVehiclePreference(VehicleType.uvExpress, !value),
         ),
       ],
     );

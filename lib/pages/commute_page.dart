@@ -162,19 +162,30 @@ class _CommutePageState extends State<CommutePage> {
     }
     final preferences = CommutePreferencesService.instance;
     await preferences.initialize();
+    final penalizedVehicleTypes = preferences.penalizedVehicleTypes;
     final journeys = await RaptorPathfindingService.instance.findJourneys(
       originLat: origin.lat.toDouble(),
       originLng: origin.lng.toDouble(),
       destLat: destination.lat.toDouble(),
       destLng: destination.lng.toDouble(),
-      penalizedVehicleTypes: preferences.penalizedVehicleTypes,
+      penalizedVehicleTypes: penalizedVehicleTypes,
       walkingDistanceResolver: MapMatchingService.fetchWalkingDistances,
     );
 
     for (final journey in journeys) {
       await _enrichJourneyLegs(journey);
     }
-    journeys.sort((a, b) => a.rankingCost.compareTo(b.rankingCost));
+    journeys.sort(
+      (a, b) => a
+          .calculateRankingCost(
+            penalizedVehicleTypes: penalizedVehicleTypes,
+          )
+          .compareTo(
+            b.calculateRankingCost(
+              penalizedVehicleTypes: penalizedVehicleTypes,
+            ),
+          ),
+    );
     if (!mounted) return;
 
     setState(() {
@@ -1178,9 +1189,7 @@ class _CommutePageState extends State<CommutePage> {
     final toName = isLast && _destinationController.text.isNotEmpty
         ? _destinationController.text
         : leg.toStopName;
-    final routeName = leg.isWalking
-        ? 'Walk'
-        : (leg.routeLongName ?? 'Transit');
+    final routeName = leg.isWalking ? 'Walk' : (leg.routeLongName ?? 'Transit');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1497,9 +1506,7 @@ class _CommutePageState extends State<CommutePage> {
                     width: isOrigin ? 15 : 13,
                     height: isOrigin ? 15 : 13,
                     decoration: BoxDecoration(
-                      color: isOrigin
-                          ? _journeyPolylineColor
-                          : Colors.white,
+                      color: isOrigin ? _journeyPolylineColor : Colors.white,
                       shape: BoxShape.circle,
                       border: isOrigin
                           ? null

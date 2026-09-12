@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 import 'package:para_v3/services/raptor_pathfinding_service.dart';
 
@@ -37,6 +38,269 @@ void main() {
     network.routesMap.clear();
     network.isLoaded = false;
   });
+
+  test('disabled vehicle types add 10% to only their transit score', () {
+    for (final type in [
+      VehicleType.tricycle,
+      VehicleType.train,
+      VehicleType.jeep,
+      VehicleType.ejeep,
+      VehicleType.bus,
+      VehicleType.uvExpress,
+    ]) {
+      Leg leg(VehicleType vehicle, double distance) => Leg(
+        fromStopId: 'a',
+        toStopId: 'b',
+        fromStopName: 'a',
+        toStopName: 'b',
+        vehicleType: vehicle,
+        distance: distance,
+      );
+      final journey = Journey([
+        leg(VehicleType.walk, 200),
+        leg(type, 1000),
+        leg(VehicleType.walk, 100),
+        leg(type, 500),
+      ]);
+      final transitScore = 1500 * (type == VehicleType.train ? 0.3 : 0.5);
+      expect(
+        journey.calculateRankingCost(penalizedVehicleTypes: {type}),
+        closeTo(300 + 500 + transitScore * 1.1, 0.001),
+      );
+      expect(journey.rankingCost, closeTo(300 + 500 + transitScore, 0.001));
+      expect(journey.cost, 1800);
+    }
+  });
+
+  test(
+    '10% vehicle penalty affects search and post-enrichment ranking',
+    () async {
+      network.routesMap['uv'] = route('uv', [
+        stop('uv_trip', 1, 'start', 14.60, 121),
+        stop('uv_trip', 2, 'end', 14.66, 121),
+      ]);
+      network.routesMap['bus'] = RoutesModel(
+        routeId: 'bus',
+        routeLongName: 'bus',
+        vehicleType: VehicleType.bus,
+        trips: [
+          TripsModel(
+            tripId: 'bus_trip',
+            routeId: 'bus',
+            stopTimes: [
+              stop('bus_trip', 1, 'start', 14.60, 121),
+              stop('bus_trip', 2, 'bend', 14.63, 121.006),
+              stop('bus_trip', 3, 'end', 14.66, 121),
+            ],
+          ),
+        ],
+      );
+      const penalized = {VehicleType.uvExpress};
+      final journeys = await pathfinder.findJourneys(
+        originLat: 14.60,
+        originLng: 121,
+        destLat: 14.66,
+        destLng: 121,
+        penalizedVehicleTypes: penalized,
+        walkingDistanceResolver:
+            (anchor, points, {pointsToAnchor = false}) async => {
+              for (final id in points.keys)
+                id: id == (pointsToAnchor ? 'end' : 'start')
+                    ? 0
+                    : double.infinity,
+            },
+      );
+      expect(
+        journeys.first.legs.firstWhere((leg) => !leg.isWalking).vehicleType,
+        VehicleType.bus,
+      );
+      final uv = journeys.firstWhere(
+        (j) => j.legs.any((l) => l.vehicleType == VehicleType.uvExpress),
+      );
+      expect(journeys.first.cost, greaterThan(uv.cost));
+      expect(
+        journeys.first.calculateRankingCost(penalizedVehicleTypes: penalized),
+        lessThan(uv.calculateRankingCost(penalizedVehicleTypes: penalized)),
+      );
+    },
+  );
+
+  test(
+    'stronger train discount retains a farther station during expansion',
+    () async {
+      for (var i = 0; i < 3; i++) {
+        network.routesMap['uv$i'] = route('uv$i', [
+          stop('uv${i}_trip', 1, 'uv${i}_start', 14.60, 121),
+          stop('uv${i}_trip', 2, 'uv${i}_end', 14.66, 121),
+        ]);
+      }
+      network.routesMap['train'] = RoutesModel(
+        routeId: 'train',
+        routeLongName: 'train',
+        vehicleType: VehicleType.train,
+        trips: [
+          TripsModel(
+            tripId: 'train_trip',
+            routeId: 'train',
+            stopTimes: [
+              stop('train_trip', 1, 'station', 14.61, 121),
+              stop('train_trip', 2, 'terminal', 14.66, 121),
+            ],
+          ),
+        ],
+      );
+      final journeys = await pathfinder.findJourneys(
+        originLat: 14.60,
+        originLng: 121,
+        destLat: 14.66,
+        destLng: 121,
+        walkingDistanceResolver:
+            (anchor, points, {pointsToAnchor = false}) async => {
+              for (final entry in points.entries)
+                entry.key: pathfinder.computeDistance(
+                  anchor.lat.toDouble(),
+                  anchor.lng.toDouble(),
+                  entry.value.lat.toDouble(),
+                  entry.value.lng.toDouble(),
+                ),
+            },
+      );
+      expect(journeys, hasLength(3));
+      final winner = journeys.first;
+      expect(
+        winner.legs.firstWhere((leg) => !leg.isWalking).vehicleType,
+        VehicleType.train,
+      );
+      final walking = winner.legs
+          .where((leg) => leg.isWalking)
+          .fold<double>(0, (sum, leg) => sum + leg.distance!);
+      expect(
+        winner.rankingCost,
+        closeTo(walking + (winner.cost - walking) * 0.3, 0.001),
+      );
+      expect(winner.rankingCost, lessThan(journeys[1].rankingCost));
+    },
+  );
+
+  test(
+    'disconnected transit stops are excluded before walking lookups',
+    () async {
+      network.routesMap['origin_only'] = route('origin_only', [
+        stop('origin_trip', 1, 'a', 14.59, 121),
+        stop('origin_trip', 2, 'b', 14.60, 121),
+      ]);
+      network.routesMap['destination_only'] = route('destination_only', [
+        stop('destination_trip', 1, 'c', 14.81, 121),
+        stop('destination_trip', 2, 'd', 14.80, 121),
+      ]);
+      final calls = <Set<String>>[];
+      await pathfinder.findJourneys(
+        originLat: 14.60,
+        originLng: 121,
+        destLat: 14.80,
+        destLng: 121,
+        walkingDistanceResolver:
+            (anchor, points, {pointsToAnchor = false}) async {
+              calls.add(points.keys.toSet());
+              return {};
+            },
+      );
+      expect(calls, [
+        {'__DIRECT_DESTINATION__'},
+      ]);
+    },
+  );
+
+  test(
+    'bounds dense endpoint lookups, covers services and caches coordinates',
+    () async {
+      final dense = <StopsAndStopTimesModel>[
+        for (var i = 0; i < 60; i++)
+          stop('dense_trip', i + 1, 'dense_$i', 14.60 + i * 0.0001, 121),
+        stop('dense_trip', 61, 'dense_end', 14.65, 121),
+      ];
+      network.routesMap['dense'] = route('dense', dense);
+      for (var i = 0; i < 2; i++) {
+        network.routesMap['other_$i'] = route('other_$i', [
+          stop(
+            'other_${i}_trip',
+            1,
+            'other_${i}_start',
+            14.604 + i * 0.0001,
+            121,
+          ),
+          stop('other_${i}_trip', 2, 'other_${i}_end', 14.65, 121),
+        ]);
+      }
+      final calls = <Map<String, Position>>[];
+      Future<Map<String, double>> resolver(
+        Position anchor,
+        Map<String, Position> points, {
+        bool pointsToAnchor = false,
+      }) async {
+        calls.add(Map.of(points));
+        expect(points.length, lessThanOrEqualTo(24));
+        expect(points.containsKey('__DIRECT_DESTINATION__'), isFalse);
+        expect(
+          points.values.map((p) => '${p.lng},${p.lat}').toSet().length,
+          points.length,
+        );
+        return {
+          for (final entry in points.entries)
+            entry.key:
+                pathfinder.computeDistance(
+                  anchor.lat.toDouble(),
+                  anchor.lng.toDouble(),
+                  entry.value.lat.toDouble(),
+                  entry.value.lng.toDouble(),
+                ) *
+                1.4,
+        };
+      }
+
+      Future<List<Journey>> search() => pathfinder.findJourneys(
+        originLat: 14.60,
+        originLng: 121,
+        destLat: 14.65,
+        destLng: 121,
+        walkingDistanceResolver: resolver,
+      );
+      final journeys = await search();
+      expect(journeys, hasLength(3));
+      expect(calls.length, inInclusiveRange(2, 8));
+      expect(calls.first.keys, containsAll(['other_0_start', 'other_1_start']));
+      expect(calls.first.keys.any((id) => id.endsWith('_end')), isFalse);
+      final beforeRepeat = calls.length;
+      await search();
+      expect(calls.length, beforeRepeat);
+    },
+  );
+
+  test(
+    'expands beyond 800 meters and defers direct walking until transit fails',
+    () async {
+      network.routesMap['r'] = route('r', [
+        stop('r_trip', 1, 'start', 14.612, 121),
+        stop('r_trip', 2, 'end', 14.65, 121),
+      ]);
+      final requests = <Set<String>>[];
+      final journeys = await pathfinder.findJourneys(
+        originLat: 14.60,
+        originLng: 121,
+        destLat: 14.65,
+        destLng: 121,
+        walkingDistanceResolver:
+            (anchor, points, {pointsToAnchor = false}) async {
+              requests.add(points.keys.toSet());
+              return {for (final id in points.keys) id: double.infinity};
+            },
+      );
+      expect(journeys, isEmpty);
+      expect(requests.any((ids) => ids.contains('start')), isTrue);
+      expect(requests.last, {'__DIRECT_DESTINATION__'});
+      expect(requests.where((ids) => ids.contains('start')), hasLength(1));
+    },
+  );
 
   test(
     'long direct walk does not displace available transit journeys',

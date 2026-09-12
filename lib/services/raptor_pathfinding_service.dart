@@ -134,7 +134,14 @@ class Leg {
 class Journey {
   // Generalized distance score, not fare or physical distance.
   static const double transitDistanceWeight = 0.5;
+  static const double trainDistanceWeight = 0.3;
   static const double transferPenalty = 500.0;
+
+  static double distanceWeight(VehicleType type, {bool penalized = false}) =>
+      (type == VehicleType.train
+          ? trainDistanceWeight
+          : transitDistanceWeight) *
+      (penalized ? 1.1 : 1.0);
 
   final List<Leg> legs;
   final String? originMainText;
@@ -148,7 +155,11 @@ class Journey {
 
   double get cost => legs.fold(0.0, (sum, leg) => sum + (leg.distance ?? 0.0));
 
-  double get rankingCost {
+  double get rankingCost => calculateRankingCost();
+
+  double calculateRankingCost({
+    Set<VehicleType> penalizedVehicleTypes = const {},
+  }) {
     var score = 0.0;
     var boardings = 0;
     for (final leg in legs) {
@@ -156,7 +167,12 @@ class Journey {
       if (leg.isWalking) {
         score += distance;
       } else {
-        score += distance * transitDistanceWeight;
+        score +=
+            distance *
+            distanceWeight(
+              leg.vehicleType,
+              penalized: penalizedVehicleTypes.contains(leg.vehicleType),
+            );
         if (boardings > 0) score += transferPenalty;
         boardings++;
       }
@@ -238,8 +254,10 @@ class RaptorPathfindingService {
   // Algorithm tuning constants.
   static const double _maxWalkingRadius = 5000.0; // meters, dest walk limit
   static const double _walkCircuityFactor = 1.4; // Estimated walking distance.
-  static const double _originSearchRadius =
-      3000.0; // initial origin walk radius
+  static const int _endpointBatchSize = 24;
+  static const List<double> _endpointRadii = [800, 1600, 3000, 5000];
+  final _walkingCache = <String, ({double distance, DateTime expires})>{};
+  WalkingDistanceResolver? _cachedResolver;
   static const int _maxRounds = 6;
   static const int _maxResults = 3;
 
@@ -264,7 +282,8 @@ class RaptorPathfindingService {
 
   /// Returns up to three distinct transit service sequences by weighted distance
   /// plus transfer penalties, using the same scoring as [Journey.rankingCost].
-  /// Walking-only is a fallback. Vehicle preferences break score ties only.
+  /// Walking-only is a fallback. Disabled vehicle types cost 10% more per
+  /// transit meter; walking and transfer penalties are unaffected.
   /// Search is bounded by the walking radii and six boardings; missing road
   /// distances or GTFS geometry use geographic estimates.
   Future<List<Journey>> findJourneys({
@@ -390,265 +409,383 @@ class RaptorPathfindingService {
       transfers[stop.stopId] = list;
     }
 
-    // --- ALGORITHM START ---
-
-    var previousRound = <String, List<_Label>>{};
-
-    // --- Initial Walking Phase (Origin -> Stops) ---
-    List<Transfer> originNearby = [];
-    double currentOriginRadius = _originSearchRadius;
-
-    // Expand radius until at least one stop is found, up to 5km
-    while (originNearby.isEmpty && currentOriginRadius <= 5000.0) {
-      final nearby = getNearbyStops(originLat, originLng, currentOriginRadius);
-      originNearby = nearby
-          .map(
-            (s) => Transfer(
-              toStopId: s.stopId,
-              distance: computeDistance(
-                originLat,
-                originLng,
-                s.stopLat,
-                s.stopLon,
-              ),
-            ),
-          )
-          .toList();
-
-      if (originNearby.isEmpty) {
-        currentOriginRadius += 500.0;
-      }
-    }
-
-    originNearby.sort((a, b) => a.distance.compareTo(b.distance));
-
-    const directDestinationKey = '__DIRECT_DESTINATION__';
-    var originRoadDistances = <String, double>{};
-    if (walkingDistanceResolver != null) {
-      final endpointPositions = <String, Position>{
-        for (final transfer in originNearby)
-          transfer.toStopId: Position(
-            allStops[transfer.toStopId]!.stopLon,
-            allStops[transfer.toStopId]!.stopLat,
-          ),
-        directDestinationKey: Position(destLng, destLat),
-      };
-      try {
-        originRoadDistances = await walkingDistanceResolver(
-          Position(originLng, originLat),
-          endpointPositions,
-        );
-      } catch (error) {
-        debugPrint('Walking-distance lookup failed; using estimates: $error');
-      }
-    }
-
-    for (final transfer in originNearby) {
-      final distance =
-          originRoadDistances[transfer.toStopId] ??
-          transfer.distance * _walkCircuityFactor;
-      if (!distance.isFinite || distance < 0 || distance > _maxWalkingRadius) {
-        continue;
-      }
-      previousRound[transfer.toStopId] = [
-        _Label(distance, [
-          Leg(
-            fromStopId: '__ORIGIN__',
-            toStopId: transfer.toStopId,
-            fromStopName: 'origin',
-            toStopName: allStops[transfer.toStopId]!.stopName,
-            vehicleType: VehicleType.walk,
-            distance: distance,
-          ),
-        ]),
-      ];
-    }
-
-    final directWalkDist =
-        originRoadDistances[directDestinationKey] ??
-        computeDistance(originLat, originLng, destLat, destLng) *
-            _walkCircuityFactor;
-    final candidates = <String, _Label>{};
-
-    final destinationNearby =
-        getNearbyStops(
-            destLat,
-            destLng,
-            _maxWalkingRadius,
-          ).map((stop) {
-            return Transfer(
-              toStopId: stop.stopId,
-              distance: computeDistance(
-                destLat,
-                destLng,
-                stop.stopLat,
-                stop.stopLon,
-              ),
-            );
-          }).toList()
-          ..sort((a, b) => a.distance.compareTo(b.distance));
-
-    var destinationRoadDistances = <String, double>{};
-    if (walkingDistanceResolver != null && destinationNearby.isNotEmpty) {
-      try {
-        destinationRoadDistances = await walkingDistanceResolver(
-          Position(destLng, destLat),
-          {
-            for (final transfer in destinationNearby)
-              transfer.toStopId: Position(
-                allStops[transfer.toStopId]!.stopLon,
-                allStops[transfer.toStopId]!.stopLat,
-              ),
-          },
-          pointsToAnchor: true,
-        );
-      } catch (error) {
-        debugPrint('Destination walking-distance lookup failed: $error');
-      }
-    }
-
-    // Weighted-distance RAPTOR: one round per vehicle boarded. Keep the
-    // cheapest three distinct service sequences at each stop.
-    for (
-      var round = 1;
-      round <= _maxRounds && previousRound.isNotEmpty;
-      round++
-    ) {
-      final arrivals = <String, List<_Label>>{};
-      for (final rr in allRoutes) {
-        final boardings = <_Boarding>[];
-        for (var i = 0; i < rr.stops.length; i++) {
-          final stop = rr.stops[i];
-          // Alight before considering boarding here (no zero-length rides).
-          for (final boarding in boardings) {
-            final distance =
-                rr.cumulativeDistances[i] -
-                rr.cumulativeDistances[boarding.index];
-            final from = rr.stops[boarding.index];
-            _retainLabel(
-              arrivals,
-              stop.stopId,
-              _Label(
-                boarding.offset +
-                    rr.cumulativeDistances[i] * Journey.transitDistanceWeight,
-                [
-                  ...boarding.label.legs,
-                  Leg(
-                    fromStopId: from.stopId,
-                    toStopId: stop.stopId,
-                    fromStopName: from.stopName,
-                    toStopName: stop.stopName,
-                    routeId: rr.routeId,
-                    raptorRouteId: rr.raptorRouteId,
-                    tripId: rr.tripId,
-                    routeLongName: rr.routeLongName,
-                    vehicleType: rr.vehicleType,
-                    distance: distance,
-                  ),
-                ],
-              ),
-            );
-          }
-          for (final label in previousRound[stop.stopId] ?? <_Label>[]) {
-            // Reboarding the same service only creates redundant alternatives.
-            if (label.legs.any(
-              (leg) => leg.raptorRouteId == rr.raptorRouteId,
-            )) {
-              continue;
-            }
-            final boarding = _Boarding(
-              label,
-              i,
-              label.cost +
-                  (round > 1 ? Journey.transferPenalty : 0) -
-                  rr.cumulativeDistances[i] * Journey.transitDistanceWeight,
-            );
-            final existing = boardings.indexWhere(
-              (item) => item.label.signature == label.signature,
-            );
-            if (existing >= 0) {
-              if (boardings[existing].offset <= boarding.offset) continue;
-              boardings.removeAt(existing);
-            }
-            boardings.add(boarding);
-            boardings.sort((a, b) => a.offset.compareTo(b.offset));
-            if (boardings.length > _maxResults) boardings.removeLast();
-          }
+    final boardingServices = <String, Set<String>>{};
+    final alightingServices = <String, Set<String>>{};
+    for (final route in allRoutes) {
+      for (var i = 0; i < route.stops.length; i++) {
+        final id = route.stops[i].stopId;
+        if (i < route.stops.length - 1) {
+          boardingServices.putIfAbsent(id, () => {}).add(route.raptorRouteId);
+        }
+        if (i > 0) {
+          alightingServices.putIfAbsent(id, () => {}).add(route.raptorRouteId);
         }
       }
+    }
+    List<Transfer> endpoints(
+      double lat,
+      double lng,
+      Map<String, Set<String>> services,
+    ) =>
+        getNearbyStops(lat, lng, _maxWalkingRadius)
+            .where((stop) => services.containsKey(stop.stopId))
+            .map(
+              (stop) => Transfer(
+                toStopId: stop.stopId,
+                distance: computeDistance(lat, lng, stop.stopLat, stop.stopLon),
+              ),
+            )
+            .toList()
+          ..sort((a, b) => a.distance.compareTo(b.distance));
+    final originOptions = endpoints(originLat, originLng, boardingServices);
+    final destinationOptions = endpoints(destLat, destLng, alightingServices);
+    // Optimistic connectivity filter: only stop order and possible footpaths,
+    // with no network requests. Reverse scans use the symmetric footpath graph.
+    Set<String> reachable(Set<String> seeds, {bool reverse = false}) {
+      var previous = seeds;
+      final reached = <String>{};
+      for (var round = 0; round < _maxRounds; round++) {
+        final rides = <String>{};
+        for (final route in allRoutes) {
+          var aboard = false;
+          for (final stop in reverse ? route.stops.reversed : route.stops) {
+            if (aboard) rides.add(stop.stopId);
+            if (previous.contains(stop.stopId)) aboard = true;
+          }
+        }
+        final next = <String>{...rides};
+        for (final id in rides) {
+          next.addAll((transfers[id] ?? <Transfer>[]).map((t) => t.toStopId));
+        }
+        final oldSize = reached.length;
+        reached.addAll(next);
+        if (reached.length == oldSize) break;
+        previous = next;
+      }
+      return reached;
+    }
 
-      // Evaluate every alighting stop before transfers can replace its label.
-      for (final entry in arrivals.entries) {
-        final stop = allStops[entry.key]!;
+    final canReachDestination = reachable(
+      destinationOptions.map((stop) => stop.toStopId).toSet(),
+      reverse: true,
+    );
+    final originPool = originOptions
+        .where((stop) => canReachDestination.contains(stop.toStopId))
+        .toList();
+    final fromOrigin = reachable(
+      originPool.map((stop) => stop.toStopId).toSet(),
+    );
+    final destinationPool = destinationOptions
+        .where((stop) => fromOrigin.contains(stop.toStopId))
+        .toList();
+    final originNearby = <Transfer>[];
+    final destinationNearby = <Transfer>[];
+    final originRoadDistances = <String, double>{};
+    final destinationRoadDistances = <String, double>{};
+    // Bounds must allow the cheapest available mode, including a later train
+    // transfer, or they could incorrectly prune a competitive train journey.
+    final minimumTransitWeight = allRoutes.fold<double>(
+      Journey.transitDistanceWeight,
+      (weight, route) => math.min(
+        weight,
+        Journey.distanceWeight(
+          route.vehicleType,
+          penalized: penalizedVehicleTypes.contains(route.vehicleType),
+        ),
+      ),
+    );
+
+    List<_Label> search() {
+      final destinationIds = destinationNearby
+          .map((stop) => stop.toStopId)
+          .toSet();
+      var previousRound = <String, List<_Label>>{};
+      for (final transfer in originNearby) {
         final distance =
-            destinationRoadDistances[entry.key] ??
-            computeDistance(stop.stopLat, stop.stopLon, destLat, destLng) *
-                _walkCircuityFactor;
+            originRoadDistances[transfer.toStopId] ??
+            transfer.distance * _walkCircuityFactor;
         if (!distance.isFinite ||
             distance < 0 ||
             distance > _maxWalkingRadius) {
           continue;
         }
-        for (final label in entry.value) {
-          final result = _Label(label.cost + distance, [
-            ...label.legs,
+        previousRound[transfer.toStopId] = [
+          _Label(distance, [
             Leg(
-              fromStopId: stop.stopId,
-              toStopId: '__DESTINATION__',
-              fromStopName: stop.stopName,
-              toStopName: 'destination',
+              fromStopId: '__ORIGIN__',
+              toStopId: transfer.toStopId,
+              fromStopName: 'origin',
+              toStopName: allStops[transfer.toStopId]!.stopName,
               vehicleType: VehicleType.walk,
               distance: distance,
             ),
-          ]);
-          final existing = candidates[result.signature];
-          if (existing == null || result.cost < existing.cost) {
-            candidates[result.signature] = result;
-          }
-        }
+          ]),
+        ];
       }
 
-      // Read only transit arrivals, so footpaths cannot chain in one round.
-      final nextRound = <String, List<_Label>>{
-        for (final entry in arrivals.entries) entry.key: List.of(entry.value),
-      };
-      for (final entry in arrivals.entries) {
-        for (final transfer in transfers[entry.key] ?? <Transfer>[]) {
-          final distance = transfer.distance * _walkCircuityFactor;
-          for (final label in entry.value) {
-            _retainLabel(
-              nextRound,
-              transfer.toStopId,
-              _Label(
-                label.cost + distance,
-                [
-                  ...label.legs,
-                  Leg(
-                    fromStopId: entry.key,
-                    toStopId: transfer.toStopId,
-                    fromStopName: allStops[entry.key]!.stopName,
-                    toStopName: allStops[transfer.toStopId]!.stopName,
-                    vehicleType: VehicleType.walk,
-                    distance: distance,
-                  ),
-                ],
-              ),
-            );
+      final candidates = <String, _Label>{};
+      // Weighted-distance RAPTOR: one round per vehicle boarded. Keep the
+      // cheapest three distinct service sequences at each stop.
+      for (
+        var round = 1;
+        round <= _maxRounds && previousRound.isNotEmpty;
+        round++
+      ) {
+        final arrivals = <String, List<_Label>>{};
+        for (final rr in allRoutes) {
+          final transitWeight = Journey.distanceWeight(
+            rr.vehicleType,
+            penalized: penalizedVehicleTypes.contains(rr.vehicleType),
+          );
+          final boardings = <_Boarding>[];
+          for (var i = 0; i < rr.stops.length; i++) {
+            final stop = rr.stops[i];
+            // Alight before considering boarding here (no zero-length rides).
+            for (final boarding in boardings) {
+              final distance =
+                  rr.cumulativeDistances[i] -
+                  rr.cumulativeDistances[boarding.index];
+              final from = rr.stops[boarding.index];
+              _retainLabel(
+                arrivals,
+                stop.stopId,
+                _Label(
+                  boarding.offset + rr.cumulativeDistances[i] * transitWeight,
+                  [
+                    ...boarding.label.legs,
+                    Leg(
+                      fromStopId: from.stopId,
+                      toStopId: stop.stopId,
+                      fromStopName: from.stopName,
+                      toStopName: stop.stopName,
+                      routeId: rr.routeId,
+                      raptorRouteId: rr.raptorRouteId,
+                      tripId: rr.tripId,
+                      routeLongName: rr.routeLongName,
+                      vehicleType: rr.vehicleType,
+                      distance: distance,
+                    ),
+                  ],
+                ),
+              );
+            }
+            for (final label in previousRound[stop.stopId] ?? <_Label>[]) {
+              // Reboarding the same service only creates redundant alternatives.
+              if (label.legs.any(
+                (leg) => leg.raptorRouteId == rr.raptorRouteId,
+              )) {
+                continue;
+              }
+              final boarding = _Boarding(
+                label,
+                i,
+                label.cost +
+                    (round > 1 ? Journey.transferPenalty : 0) -
+                    rr.cumulativeDistances[i] * transitWeight,
+              );
+              final existing = boardings.indexWhere(
+                (item) => item.label.signature == label.signature,
+              );
+              if (existing >= 0) {
+                if (boardings[existing].offset <= boarding.offset) continue;
+                boardings.removeAt(existing);
+              }
+              boardings.add(boarding);
+              boardings.sort((a, b) => a.offset.compareTo(b.offset));
+              if (boardings.length > _maxResults) boardings.removeLast();
+            }
           }
         }
+
+        // Evaluate every alighting stop before transfers can replace its label.
+        for (final entry in arrivals.entries) {
+          if (!destinationIds.contains(entry.key)) continue;
+          final stop = allStops[entry.key]!;
+          final distance =
+              destinationRoadDistances[entry.key] ??
+              computeDistance(stop.stopLat, stop.stopLon, destLat, destLng) *
+                  _walkCircuityFactor;
+          if (!distance.isFinite ||
+              distance < 0 ||
+              distance > _maxWalkingRadius) {
+            continue;
+          }
+          for (final label in entry.value) {
+            final result = _Label(label.cost + distance, [
+              ...label.legs,
+              Leg(
+                fromStopId: stop.stopId,
+                toStopId: '__DESTINATION__',
+                fromStopName: stop.stopName,
+                toStopName: 'destination',
+                vehicleType: VehicleType.walk,
+                distance: distance,
+              ),
+            ]);
+            final existing = candidates[result.signature];
+            if (existing == null || result.cost < existing.cost) {
+              candidates[result.signature] = result;
+            }
+          }
+        }
+
+        // Read only transit arrivals, so footpaths cannot chain in one round.
+        final nextRound = <String, List<_Label>>{
+          for (final entry in arrivals.entries) entry.key: List.of(entry.value),
+        };
+        for (final entry in arrivals.entries) {
+          for (final transfer in transfers[entry.key] ?? <Transfer>[]) {
+            final distance = transfer.distance * _walkCircuityFactor;
+            for (final label in entry.value) {
+              _retainLabel(
+                nextRound,
+                transfer.toStopId,
+                _Label(
+                  label.cost + distance,
+                  [
+                    ...label.legs,
+                    Leg(
+                      fromStopId: entry.key,
+                      toStopId: transfer.toStopId,
+                      fromStopName: allStops[entry.key]!.stopName,
+                      toStopName: allStops[transfer.toStopId]!.stopName,
+                      vehicleType: VehicleType.walk,
+                      distance: distance,
+                    ),
+                  ],
+                ),
+              );
+            }
+          }
+        }
+        previousRound = nextRound;
       }
-      previousRound = nextRound;
+
+      final ranked = candidates.values.toList()
+        ..sort((a, b) {
+          final byScore = a.cost.compareTo(b.cost);
+          if (byScore != 0) return byScore;
+          int preferenceCount(_Label label) => label.legs
+              .where((leg) => penalizedVehicleTypes.contains(leg.vehicleType))
+              .length;
+          return preferenceCount(a).compareTo(preferenceCount(b));
+        });
+
+      return ranked;
     }
 
-    final ranked = candidates.values.toList()
-      ..sort((a, b) {
-        final byScore = a.cost.compareTo(b.cost);
-        if (byScore != 0) return byScore;
-        int preferenceCount(_Label label) => label.legs
-            .where((leg) => penalizedVehicleTypes.contains(leg.vehicleType))
-            .length;
-        return preferenceCount(a).compareTo(preferenceCount(b));
-      });
+    var ranked = <_Label>[];
+    for (final radius in _endpointRadii) {
+      final threshold = ranked.length >= _maxResults
+          ? ranked[_maxResults - 1].cost
+          : double.infinity;
+      // A geographic lower bound never uses the 1.4 walking estimate.
+      // Even if all remaining travel were discounted transit, this stop
+      // cannot beat an incumbent whose score is below that bound.
+      List<Transfer> shortlist(
+        List<Transfer> pool,
+        List<Transfer> selected,
+        Map<String, Set<String>> services,
+        double otherLat,
+        double otherLng,
+      ) {
+        final usedIds = selected.map((stop) => stop.toStopId).toSet();
+        final covered = <String>{
+          for (final stop in selected) ...services[stop.toStopId]!,
+        };
+        final eligible = pool.where((stop) {
+          if (usedIds.contains(stop.toStopId) || stop.distance > radius) {
+            return false;
+          }
+          final point = allStops[stop.toStopId]!;
+          final bound =
+              stop.distance +
+              minimumTransitWeight *
+                  computeDistance(
+                    point.stopLat,
+                    point.stopLon,
+                    otherLat,
+                    otherLng,
+                  );
+          return bound <= threshold;
+        }).toList();
+        final batch = <Transfer>[];
+        final locations = <String>{};
+        String location(Transfer stop) {
+          final point = allStops[stop.toStopId]!;
+          return '${point.stopLon},${point.stopLat}';
+        }
+
+        void add(Transfer stop) {
+          locations.add(location(stop));
+          usedIds.add(stop.toStopId);
+          covered.addAll(services[stop.toStopId]!);
+          batch.add(stop);
+        }
+
+        // Cover different directional service patterns before filling by proximity.
+        for (final stop in eligible) {
+          if (locations.length >= _endpointBatchSize) break;
+          if (services[stop.toStopId]!.any((id) => !covered.contains(id))) {
+            add(stop);
+          }
+        }
+        for (final stop in eligible) {
+          if (usedIds.contains(stop.toStopId)) continue;
+          if (locations.contains(location(stop)) ||
+              locations.length < _endpointBatchSize) {
+            add(stop);
+          }
+        }
+        return batch;
+      }
+
+      final originBatch = shortlist(
+        originPool,
+        originNearby,
+        boardingServices,
+        destLat,
+        destLng,
+      );
+      final destinationBatch = shortlist(
+        destinationPool,
+        destinationNearby,
+        alightingServices,
+        originLat,
+        originLng,
+      );
+      if (originBatch.isEmpty && destinationBatch.isEmpty) continue;
+
+      Future<Map<String, double>> resolve(
+        Position anchor,
+        List<Transfer> batch, {
+        bool pointsToAnchor = false,
+      }) async {
+        if (walkingDistanceResolver == null || batch.isEmpty) return {};
+        return _resolveWalkingDistances(walkingDistanceResolver, anchor, {
+          for (final stop in batch)
+            stop.toStopId: Position(
+              allStops[stop.toStopId]!.stopLon,
+              allStops[stop.toStopId]!.stopLat,
+            ),
+        }, pointsToAnchor: pointsToAnchor);
+      }
+
+      // Independent endpoint batches: at most two requests in flight.
+      final distances = await Future.wait([
+        resolve(Position(originLng, originLat), originBatch),
+        resolve(
+          Position(destLng, destLat),
+          destinationBatch,
+          pointsToAnchor: true,
+        ),
+      ]);
+      originNearby.addAll(originBatch);
+      destinationNearby.addAll(destinationBatch);
+      originRoadDistances.addAll(distances[0]);
+      destinationRoadDistances.addAll(distances[1]);
+      ranked = search();
+    }
     if (ranked.isNotEmpty) {
       // Copy legs: enrichment mutates them, and labels can share prefixes.
       return ranked
@@ -662,6 +799,19 @@ class RaptorPathfindingService {
           )
           .toList();
     }
+    // Request the direct walk only after all bounded transit attempts fail.
+    const directKey = '__DIRECT_DESTINATION__';
+    final directDistances = walkingDistanceResolver == null
+        ? <String, double>{}
+        : await _resolveWalkingDistances(
+            walkingDistanceResolver,
+            Position(originLng, originLat),
+            {directKey: Position(destLng, destLat)},
+          );
+    final directWalkDist =
+        directDistances[directKey] ??
+        computeDistance(originLat, originLng, destLat, destLng) *
+            _walkCircuityFactor;
     if (!directWalkDist.isFinite || directWalkDist < 0) return [];
     return [
       Journey([
@@ -675,6 +825,64 @@ class RaptorPathfindingService {
         ),
       ]),
     ];
+  }
+
+  Future<Map<String, double>> _resolveWalkingDistances(
+    WalkingDistanceResolver resolver,
+    Position anchor,
+    Map<String, Position> points, {
+    bool pointsToAnchor = false,
+  }) async {
+    // Resolver identity prevents mixing test/custom backends in the cache.
+    if (_cachedResolver != resolver) {
+      _walkingCache.clear();
+      _cachedResolver = resolver;
+    }
+    final now = DateTime.now();
+    _walkingCache.removeWhere((key, value) => !value.expires.isAfter(now));
+    final result = <String, double>{};
+    final pending = <String, Position>{};
+    final aliases = <String, List<String>>{};
+    final representative = <String, String>{};
+    String key(Position point) => pointsToAnchor
+        ? '${point.lng},${point.lat}>${anchor.lng},${anchor.lat}'
+        : '${anchor.lng},${anchor.lat}>${point.lng},${point.lat}';
+    for (final entry in points.entries) {
+      final cacheKey = key(entry.value);
+      final cached = _walkingCache[cacheKey];
+      if (cached != null) {
+        result[entry.key] = cached.distance;
+      } else {
+        final id = representative.putIfAbsent(cacheKey, () => entry.key);
+        aliases.putIfAbsent(id, () => []).add(entry.key);
+        pending[id] = entry.value;
+      }
+    }
+    if (pending.isEmpty) return result;
+    try {
+      final resolved = await resolver(
+        anchor,
+        pending,
+        pointsToAnchor: pointsToAnchor,
+      );
+      for (final entry in pending.entries) {
+        final distance = resolved[entry.key];
+        if (distance == null || distance.isNaN || distance < 0) continue;
+        for (final id in aliases[entry.key]!) {
+          result[id] = distance;
+        }
+        _walkingCache[key(entry.value)] = (
+          distance: distance,
+          expires: now.add(const Duration(minutes: 5)),
+        );
+      }
+      while (_walkingCache.length > 2048) {
+        _walkingCache.remove(_walkingCache.keys.first);
+      }
+    } catch (error) {
+      debugPrint('Walking-distance lookup failed; using estimates: $error');
+    }
+    return result;
   }
 
   void _retainLabel(
