@@ -129,32 +129,6 @@ class _ProfilePageResetPasswordState extends State<ProfilePageResetPassword> {
   );
 
   List<Widget> _emailFields() => [
-    Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer.withValues(
-          alpha: 0.45,
-        ),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.shield_outlined,
-            size: 20,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-          const SizedBox(width: 10),
-          const Expanded(
-            child: Text(
-              'For your privacy, we show the same response whether or not an account exists.',
-            ),
-          ),
-        ],
-      ),
-    ),
     const SizedBox(height: 16),
     TextField(
       controller: _email,

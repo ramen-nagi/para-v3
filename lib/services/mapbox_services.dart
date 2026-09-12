@@ -44,15 +44,28 @@ class MapMatchingService {
     final entries = destinations.entries.toList();
     final resolved = <String, double>{};
 
-    for (
-      var offset = 0;
-      offset < entries.length;
-      offset += _matrixDestinationsPerRequest
-    ) {
-      final end = math.min(
-        offset + _matrixDestinationsPerRequest,
-        entries.length,
-      );
+    // The Matrix API rejects a one-origin/one-destination request because it
+    // produces only one matrix element. Use Directions for the genuinely
+    // single-destination case.
+    if (entries.length == 1) {
+      final entry = entries.single;
+      final start = pointsToAnchor ? entry.value : anchor;
+      final end = pointsToAnchor ? anchor : entry.value;
+      final metadata = await fetchWalkingDirections(start, end);
+      if (metadata != null) {
+        resolved[entry.key] = metadata.distanceMeters;
+      }
+      return resolved;
+    }
+
+    var offset = 0;
+    while (offset < entries.length) {
+      final remaining = entries.length - offset;
+      // Avoid leaving a final singleton batch (for example 25 -> 23 + 2).
+      final batchSize = remaining == _matrixDestinationsPerRequest + 1
+          ? _matrixDestinationsPerRequest - 1
+          : math.min(_matrixDestinationsPerRequest, remaining);
+      final end = offset + batchSize;
       final batch = entries.sublist(offset, end);
       final coordinates = <Position>[
         anchor,
@@ -106,6 +119,8 @@ class MapMatchingService {
       } catch (error) {
         debugPrint('Error requesting Mapbox walking matrix: $error');
       }
+
+      offset = end;
     }
 
     return resolved;

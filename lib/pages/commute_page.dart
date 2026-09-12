@@ -174,6 +174,7 @@ class _CommutePageState extends State<CommutePage> {
     for (final journey in journeys) {
       await _enrichJourneyLegs(journey);
     }
+    journeys.sort((a, b) => a.rankingCost.compareTo(b.rankingCost));
     if (!mounted) return;
 
     setState(() {
