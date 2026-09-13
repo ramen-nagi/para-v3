@@ -152,6 +152,16 @@ class _CommutePageState extends State<CommutePage> {
     );
     if (!mounted || result == null) return;
 
+    final resultOrigin = result.originPosition;
+    final resultDestination = result.destinationPosition;
+    if (resultOrigin != null &&
+        resultDestination != null &&
+        resultOrigin.lat == resultDestination.lat &&
+        resultOrigin.lng == resultDestination.lng) {
+      _showGpsMessage('Origin and destination must be different.');
+      return;
+    }
+
     await _clearJourneyMapOverlays();
     setState(() {
       _originPosition = result.originPosition;

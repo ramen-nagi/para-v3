@@ -253,6 +253,7 @@ class RaptorPathfindingService {
 
   // Algorithm tuning constants.
   static const double _maxWalkingRadius = 5000.0; // meters, dest walk limit
+  static const double _walkOnlyThreshold = 500.0;
   static const double _walkCircuityFactor = 1.4; // Estimated walking distance.
   static const int _endpointBatchSize = 24;
   static const List<double> _endpointRadii = [800, 1600, 3000, 5000];
@@ -282,8 +283,9 @@ class RaptorPathfindingService {
 
   /// Returns up to three distinct transit service sequences by weighted distance
   /// plus transfer penalties, using the same scoring as [Journey.rankingCost].
-  /// Walking-only is a fallback. Disabled vehicle types cost 10% more per
-  /// transit meter; walking and transfer penalties are unaffected.
+  /// A direct walk is preferred when it scores better than the best transit
+  /// journey. Disabled vehicle types cost 10% more per transit meter; walking
+  /// and transfer penalties are unaffected.
   /// Search is bounded by the walking radii and six boardings; missing road
   /// distances or GTFS geometry use geographic estimates.
   Future<List<Journey>> findJourneys({
@@ -297,6 +299,51 @@ class RaptorPathfindingService {
     if (!GtfsNetworkService.instance.isLoaded) {
       debugPrint('RAPTOR Error: GTFS dataset not loaded yet.');
       return [];
+    }
+
+    const directKey = '__DIRECT_DESTINATION__';
+    final directWalkLowerBound = computeDistance(
+      originLat,
+      originLng,
+      destLat,
+      destLng,
+    );
+    double? resolvedDirectWalkDistance;
+    Future<double> resolveDirectWalkDistance() async {
+      final resolved = resolvedDirectWalkDistance;
+      if (resolved != null) return resolved;
+      final directDistances = walkingDistanceResolver == null
+          ? <String, double>{}
+          : await _resolveWalkingDistances(
+              walkingDistanceResolver,
+              Position(originLng, originLat),
+              {directKey: Position(destLng, destLat)},
+            );
+      return resolvedDirectWalkDistance =
+          directDistances[directKey] ??
+          directWalkLowerBound * _walkCircuityFactor;
+    }
+
+    Journey directWalkJourney(double distance) => Journey([
+      Leg(
+        fromStopId: '__ORIGIN__',
+        toStopId: '__DESTINATION__',
+        fromStopName: 'origin',
+        toStopName: 'destination',
+        vehicleType: VehicleType.walk,
+        distance: distance,
+      ),
+    ]);
+
+    // A route cannot be shorter than its geographic lower bound, so only a
+    // nearby pair can qualify for the walk-only rule.
+    if (directWalkLowerBound < _walkOnlyThreshold) {
+      final directWalkDistance = await resolveDirectWalkDistance();
+      if (directWalkDistance.isFinite &&
+          directWalkDistance >= 0 &&
+          directWalkDistance < _walkOnlyThreshold) {
+        return [directWalkJourney(directWalkDistance)];
+      }
     }
 
     // 1. Gather all unique stops and RaptorRoutes
@@ -786,10 +833,10 @@ class RaptorPathfindingService {
       destinationRoadDistances.addAll(distances[1]);
       ranked = search();
     }
-    if (ranked.isNotEmpty) {
+    List<Journey> transitJourneys([int limit = _maxResults]) {
       // Copy legs: enrichment mutates them, and labels can share prefixes.
       return ranked
-          .take(_maxResults)
+          .take(limit)
           .map(
             (label) => _mergeAdjacentWalkingLegs(
               Journey(
@@ -799,32 +846,27 @@ class RaptorPathfindingService {
           )
           .toList();
     }
-    // Request the direct walk only after all bounded transit attempts fail.
-    const directKey = '__DIRECT_DESTINATION__';
-    final directDistances = walkingDistanceResolver == null
-        ? <String, double>{}
-        : await _resolveWalkingDistances(
-            walkingDistanceResolver,
-            Position(originLng, originLat),
-            {directKey: Position(destLng, destLat)},
-          );
-    final directWalkDist =
-        directDistances[directKey] ??
-        computeDistance(originLat, originLng, destLat, destLng) *
-            _walkCircuityFactor;
-    if (!directWalkDist.isFinite || directWalkDist < 0) return [];
-    return [
-      Journey([
-        Leg(
-          fromStopId: '__ORIGIN__',
-          toStopId: '__DESTINATION__',
-          fromStopName: 'origin',
-          toStopName: 'destination',
-          vehicleType: VehicleType.walk,
-          distance: directWalkDist,
-        ),
-      ]),
-    ];
+
+    // Road distance cannot be shorter than the geographic distance. Avoid an
+    // extra directions request when a direct walk cannot beat the best route.
+    final couldBeWalkOnly = directWalkLowerBound < _walkOnlyThreshold;
+    if (ranked.isNotEmpty &&
+        !couldBeWalkOnly &&
+        directWalkLowerBound >= ranked.first.cost) {
+      return transitJourneys();
+    }
+
+    final directWalkDist = await resolveDirectWalkDistance();
+    if (!directWalkDist.isFinite || directWalkDist < 0) {
+      return transitJourneys();
+    }
+    final directWalk = directWalkJourney(directWalkDist);
+    if (directWalkDist < _walkOnlyThreshold) return [directWalk];
+    if (ranked.isEmpty) return [directWalk];
+    if (directWalkDist < ranked.first.cost) {
+      return [directWalk, ...transitJourneys(_maxResults - 1)];
+    }
+    return transitJourneys();
   }
 
   Future<Map<String, double>> _resolveWalkingDistances(

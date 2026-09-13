@@ -346,6 +346,30 @@ void main() {
     },
   );
 
+  test('walk under 500 meters suppresses out-of-the-way transit', () async {
+    network.routesMap['detour'] = route('detour', [
+      stop('detour_trip', 1, 'start', 14.61, 121),
+      stop('detour_trip', 2, 'end', 14.59, 121),
+    ]);
+
+    final journeys = await pathfinder.findJourneys(
+      originLat: 14.6000,
+      originLng: 121,
+      destLat: 14.6005,
+      destLng: 121,
+      walkingDistanceResolver:
+          (anchor, destinations, {pointsToAnchor = false}) async => {
+            for (final id in destinations.keys)
+              id: id == '__DIRECT_DESTINATION__' ? 60 : 1000,
+          },
+    );
+
+    expect(journeys.first.legs, hasLength(1));
+    expect(journeys.first.legs.single.isWalking, isTrue);
+    expect(journeys.first.cost, 60);
+    expect(journeys, hasLength(1));
+  });
+
   test('alights before a detour when that minimizes total distance', () async {
     const originLat = 14.60000;
     const destinationLat = 14.65400;
@@ -485,8 +509,11 @@ void main() {
       destLat: 14.704426222882072,
       destLng: 121.0367393421618,
     );
+    final transitJourney = journeys.firstWhere(
+      (journey) => journey.legs.any((leg) => !leg.isWalking),
+    );
     expect(
-      journeys.single.legs.firstWhere((l) => !l.isWalking).distance,
+      transitJourney.legs.firstWhere((leg) => !leg.isWalking).distance,
       greaterThan(10000),
     );
   });

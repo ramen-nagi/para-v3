@@ -128,6 +128,13 @@ class _CommutePageInputState extends State<CommutePageInput> {
     final controller = isDestination
         ? widget.destinationController
         : widget.originController;
+    if (_rejectDuplicateLocation(
+      place.position,
+      isDestination,
+      candidateText: place.suggestion.fullText,
+    )) {
+      return;
+    }
     controller.text = place.suggestion.fullText;
     setState(() {
       if (isDestination) {
@@ -295,9 +302,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
     final controller = isDestination
         ? widget.destinationController
         : widget.originController;
-    controller.text = suggestion.fullText;
     setState(() => _suggestions = []);
-    FocusScope.of(context).unfocus();
 
     final position =
         await RecentsService.instance.getRecentPosition(
@@ -305,8 +310,18 @@ class _CommutePageInputState extends State<CommutePageInput> {
         ) ??
         await _autocomplete.geocode(suggestion);
     if (!mounted || position == null) return;
+    if (_rejectDuplicateLocation(
+      position,
+      isDestination,
+      candidateText: suggestion.fullText,
+    )) {
+      await _loadRecentSuggestions();
+      return;
+    }
+    FocusScope.of(context).unfocus();
 
     await RecentsService.instance.saveSuggestion(suggestion, position);
+    controller.text = suggestion.fullText;
 
     setState(() {
       if (isDestination) {
@@ -363,6 +378,13 @@ class _CommutePageInputState extends State<CommutePageInput> {
 
       final current = await geo.Geolocator.getCurrentPosition();
       final position = Position(current.longitude, current.latitude);
+      if (_rejectDuplicateLocation(
+        position,
+        isDestination,
+        candidateText: 'Current location',
+      )) {
+        return;
+      }
       final controller = isDestination
           ? widget.destinationController
           : widget.originController;
@@ -407,6 +429,57 @@ class _CommutePageInputState extends State<CommutePageInput> {
   bool _samePosition(Position? first, Position? second) {
     if (first == null || second == null) return first == null && second == null;
     return first.lat == second.lat && first.lng == second.lng;
+  }
+
+  bool _rejectDuplicateLocation(
+    Position candidate,
+    bool isDestination, {
+    String? candidateText,
+  }) {
+    final other = isDestination ? _originPosition : _destinationPosition;
+    final otherText =
+        (isDestination
+                ? widget.originController.text
+                : widget.destinationController.text)
+            .trim()
+            .toLowerCase();
+    final otherMainText =
+        (isDestination ? _originMainText : _destinationMainText)
+            ?.trim()
+            .toLowerCase();
+    final normalizedCandidateText = candidateText?.trim().toLowerCase();
+    final hasSameAddress =
+        normalizedCandidateText?.isNotEmpty == true &&
+        (normalizedCandidateText == otherText ||
+            normalizedCandidateText == otherMainText);
+    final hasSamePosition =
+        other != null &&
+        candidate.lat == other.lat &&
+        candidate.lng == other.lng;
+    if (!hasSameAddress && !hasSamePosition) return false;
+
+    setState(() {
+      if (isDestination) {
+        widget.destinationController.clear();
+        _destinationPosition = null;
+        _destinationMainText = null;
+      } else {
+        widget.originController.clear();
+        _originPosition = null;
+        _originMainText = null;
+      }
+    });
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Origin and destination must be different.'),
+        ),
+      );
+    final focusNode = isDestination ? _destinationFocusNode : _originFocusNode;
+    focusNode.requestFocus();
+    return true;
   }
 
   bool _hasInputChanged() {
