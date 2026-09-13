@@ -57,6 +57,14 @@ class _SavedAddressesPageState extends State<SavedAddressesPage> {
     await _openPlace(key, '');
   }
 
+  Future<void> _deletePlace(SavedPlace place) async {
+    await RecentsService.instance.deleteSavedPlace(place.key);
+    if (!mounted) return;
+    setState(() {
+      _savedPlaces.removeWhere((savedPlace) => savedPlace.key == place.key);
+    });
+  }
+
   Widget _buildPlaceTile({
     required String key,
     required String label,
@@ -67,20 +75,42 @@ class _SavedAddressesPageState extends State<SavedAddressesPage> {
       leading: Icon(icon),
       title: label,
       subtitle: place?.suggestion.mainText ?? 'Tap to Set Address',
-      trailing: const Icon(Icons.chevron_right),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (place != null)
+            IconButton(
+              tooltip: label.isEmpty ? 'Delete saved address' : 'Delete $label',
+              onPressed: () => _deletePlace(place),
+              icon: const Icon(Icons.delete_outline),
+            ),
+          const Icon(Icons.chevron_right),
+        ],
+      ),
       onTap: () => _openPlace(key, label),
     );
   }
 
   Future<void> _clearSavedPlaces() async {
-    final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
-      title: const Text('Clear saved addresses?'),
-      content: const Text('This will remove all saved addresses from this device.'),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Clear all')),
-      ],
-    ));
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear saved addresses?'),
+        content: const Text(
+          'This will remove all saved addresses from this device.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Clear all'),
+          ),
+        ],
+      ),
+    );
     if (confirmed != true) return;
     await RecentsService.instance.clearSavedPlaces();
     await _loadSavedPlaces();
@@ -96,30 +126,34 @@ class _SavedAddressesPageState extends State<SavedAddressesPage> {
     return ProfileListPage(
       title: 'Saved Addresses',
       loading: _isLoading,
-      actions: _savedPlaces.isEmpty ? null : [
-        IconButton(tooltip: 'Clear saved addresses', onPressed: _clearSavedPlaces, icon: const Icon(Icons.delete_sweep_outlined)),
-      ],
+      actions: _savedPlaces.isEmpty
+          ? null
+          : [
+              IconButton(
+                tooltip: 'Clear saved addresses',
+                onPressed: _clearSavedPlaces,
+                icon: const Icon(Icons.delete_sweep_outlined),
+              ),
+            ],
       children: [
-                for (final entry in _defaultPlaces)
-                  _buildPlaceTile(
-                    key: entry.$1,
-                    label: entry.$2,
-                    icon: entry.$3,
-                  ),
-                for (final place in customPlaces)
-                  _buildPlaceTile(
-                    key: place.key,
-                    label: place.label,
-                    icon: Icons.bookmark_outline,
-                  ),
-                ProfileListTile(
-                  leading: const Icon(Icons.add),
-                  title: 'Add place',
-                  onTap: _addCustomPlace,
-                ),
-              ],
+        for (final entry in _defaultPlaces)
+          _buildPlaceTile(
+            key: entry.$1,
+            label: entry.$2,
+            icon: entry.$3,
+          ),
+        for (final place in customPlaces)
+          _buildPlaceTile(
+            key: place.key,
+            label: place.label,
+            icon: Icons.bookmark_outline,
+          ),
+        ProfileListTile(
+          leading: const Icon(Icons.add),
+          title: 'Add place',
+          onTap: _addCustomPlace,
+        ),
+      ],
     );
   }
 }
-
-

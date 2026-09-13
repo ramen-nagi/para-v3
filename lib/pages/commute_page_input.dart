@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/module/location_textfield.dart';
 import 'package:para_v3/module/appbar.dart';
 import 'package:para_v3/module/auth_required_dialog.dart';
+import 'package:para_v3/module/use_current_location_button.dart';
 import 'package:para_v3/pages/saved_place_page.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
 import 'package:para_v3/services/recents_service.dart';
@@ -67,6 +66,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
   late final String _initialDestinationText;
   late final Position? _initialOriginPosition;
   late final Position? _initialDestinationPosition;
+  late CommuteInputField _activeField;
 
   @override
   void initState() {
@@ -79,6 +79,7 @@ class _CommutePageInputState extends State<CommutePageInput> {
     _initialDestinationText = widget.destinationController.text;
     _initialOriginPosition = widget.originPosition;
     _initialDestinationPosition = widget.destinationPosition;
+    _activeField = widget.initialField;
     _originFocusNode.addListener(_onOriginFocusChanged);
     _destinationFocusNode.addListener(_onDestinationFocusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -257,12 +258,14 @@ class _CommutePageInputState extends State<CommutePageInput> {
 
   void _onOriginFocusChanged() {
     if (_originFocusNode.hasFocus) {
+      _activeField = CommuteInputField.origin;
       _onQueryChanged(widget.originController.text);
     }
   }
 
   void _onDestinationFocusChanged() {
     if (_destinationFocusNode.hasFocus) {
+      _activeField = CommuteInputField.destination;
       _onQueryChanged(widget.destinationController.text);
     }
   }
@@ -350,77 +353,40 @@ class _CommutePageInputState extends State<CommutePageInput> {
     );
   }
 
-  Future<void> _useCurrentLocation() async {
-    try {
-      final isDestination = _destinationFocusNode.hasFocus;
-      final permission = await geo.Geolocator.checkPermission();
-      var resolvedPermission = permission;
-      if (permission == geo.LocationPermission.denied) {
-        resolvedPermission = await geo.Geolocator.requestPermission();
-      }
-      if (resolvedPermission == geo.LocationPermission.deniedForever ||
-          resolvedPermission == geo.LocationPermission.denied) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location permission is required.')),
-        );
-        return;
-      }
+  void _useCurrentLocation(Position position) {
+    final isDestination = _activeField == CommuteInputField.destination;
+    final coordinates = formatLocationCoordinates(position);
+    if (_rejectDuplicateLocation(
+      position,
+      isDestination,
+      candidateText: coordinates,
+    )) {
+      return;
+    }
+    final controller = isDestination
+        ? widget.destinationController
+        : widget.originController;
+    controller.text = coordinates;
 
-      final serviceEnabled = await geo.Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enable location services.')),
-        );
-        return;
+    setState(() {
+      if (isDestination) {
+        _destinationPosition = position;
+        _destinationMainText = coordinates;
+      } else {
+        _originPosition = position;
+        _originMainText = coordinates;
       }
+      _suggestions = [];
+    });
+    FocusScope.of(context).unfocus();
 
-      final current = await geo.Geolocator.getCurrentPosition();
-      final position = Position(current.longitude, current.latitude);
-      if (_rejectDuplicateLocation(
-        position,
-        isDestination,
-        candidateText: 'Current location',
-      )) {
-        return;
-      }
-      final controller = isDestination
-          ? widget.destinationController
-          : widget.originController;
-      controller.text =
-          'Current location (${current.latitude.toStringAsFixed(5)}, '
-          '${current.longitude.toStringAsFixed(5)})';
-
-      setState(() {
-        if (isDestination) {
-          _destinationPosition = position;
-          _destinationMainText = 'Current location';
-        } else {
-          _originPosition = position;
-          _originMainText = 'Current location';
-        }
-        _suggestions = [];
-      });
-      FocusScope.of(context).unfocus();
-
-      if (_originPosition != null && _destinationPosition != null && mounted) {
-        Navigator.of(context).pop(
-          CommuteInputResult(
-            originPosition: _originPosition,
-            destinationPosition: _destinationPosition,
-            originMainText: _originMainText,
-            destinationMainText: _destinationMainText,
-          ),
-        );
-      }
-    } on MissingPluginException {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Location is unavailable until the app is fully restarted.',
-          ),
+    if (_originPosition != null && _destinationPosition != null && mounted) {
+      Navigator.of(context).pop(
+        CommuteInputResult(
+          originPosition: _originPosition,
+          destinationPosition: _destinationPosition,
+          originMainText: _originMainText,
+          destinationMainText: _destinationMainText,
         ),
       );
     }
@@ -524,21 +490,8 @@ class _CommutePageInputState extends State<CommutePageInput> {
 
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  onPressed: _useCurrentLocation,
-                  icon: const Icon(Icons.my_location),
-                  label: const Text('Use my current location'),
-                ),
+              child: UseCurrentLocationButton(
+                onLocationSelected: _useCurrentLocation,
               ),
             ),
 

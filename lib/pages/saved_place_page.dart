@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:para_v3/module/appbar.dart';
 import 'package:para_v3/module/auth_required_dialog.dart';
+import 'package:para_v3/module/use_current_location_button.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/autocomplete_geocoding_service.dart';
 import 'package:para_v3/services/recents_service.dart';
@@ -61,6 +62,22 @@ class _SavedPlacePageState extends State<SavedPlacePage> {
     });
   }
 
+  void _useCurrentLocation(Position position) {
+    final coordinates = formatLocationCoordinates(position);
+    setState(() {
+      _selectedSuggestion = PlaceSuggestion(
+        placeId: 'current_location',
+        mainText: coordinates,
+        secondaryText: '',
+        fullText: coordinates,
+      );
+      _selectedPosition = position;
+      _searchController.text = coordinates;
+      _suggestions = [];
+    });
+    FocusScope.of(context).unfocus();
+  }
+
   Future<void> _save() async {
     if (Supabase.instance.client.auth.currentUser == null) {
       await AuthRequiredDialog.show(
@@ -80,12 +97,14 @@ class _SavedPlacePageState extends State<SavedPlacePage> {
       );
       return;
     }
-    await RecentsService.instance.savePlace(SavedPlace(
-      key: widget.saveKey,
-      label: label,
-      suggestion: suggestion,
-      position: position,
-    ));
+    await RecentsService.instance.savePlace(
+      SavedPlace(
+        key: widget.saveKey,
+        label: label,
+        suggestion: suggestion,
+        position: position,
+      ),
+    );
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -116,6 +135,10 @@ class _SavedPlacePageState extends State<SavedPlacePage> {
               prefixIcon: Icon(Icons.search),
               border: OutlineInputBorder(),
             ),
+          ),
+          const SizedBox(height: 12),
+          UseCurrentLocationButton(
+            onLocationSelected: _useCurrentLocation,
           ),
           ..._suggestions.map(
             (suggestion) => ListTile(
@@ -160,5 +183,3 @@ class _SavedPlacePageState extends State<SavedPlacePage> {
     );
   }
 }
-
-

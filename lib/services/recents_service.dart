@@ -362,6 +362,18 @@ class RecentsService {
     }
   }
 
+  Future<void> deleteSavedPlace(String key) async {
+    final db = await _openDatabase();
+    try {
+      db.execute(
+        'DELETE FROM $_savedTableName WHERE save_key = ?',
+        [key],
+      );
+    } finally {
+      db.dispose();
+    }
+  }
+
   Future<void> clearSavedPlaces() async {
     final db = await _openDatabase();
     try {

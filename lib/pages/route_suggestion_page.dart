@@ -29,7 +29,6 @@ class _RouteSuggestionPageState extends State<RouteSuggestionPage> {
     'tricycle': 'Tricycle',
     'uv_express': 'UV Express',
     'modern_jeep': 'Modern Jeep',
-    'unknown': 'Unknown',
   };
 
   @override

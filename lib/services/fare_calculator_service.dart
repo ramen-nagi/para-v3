@@ -11,14 +11,17 @@ class FareCalculatorService {
     'LTFRB_PUB5',
   };
 
-  final SupabaseClient _client = Supabase.instance.client;
+  SupabaseClient get _client => Supabase.instance.client;
   final Map<String, Map<String, dynamic>> _distanceFareCache = {};
   final Map<String, double> _trainFareCache = {};
   static const _discountedFarePreferenceKey = 'discounted_fare_estimate';
+  static const _beepCardFarePreferenceKey = 'beep_card_fare_estimate';
   bool _useDiscountedFare = false;
+  bool _useBeepCardFare = false;
   Future<void>? _initialization;
 
   bool get useDiscountedFare => _useDiscountedFare;
+  bool get useBeepCardFare => _useBeepCardFare;
 
   Future<void> initialize() => _initialization ??= _loadPreference();
 
@@ -26,12 +29,27 @@ class FareCalculatorService {
     final preferences = await SharedPreferences.getInstance();
     _useDiscountedFare =
         preferences.getBool(_discountedFarePreferenceKey) ?? false;
+    _useBeepCardFare = preferences.getBool(_beepCardFarePreferenceKey) ?? false;
   }
 
   Future<void> setDiscountedFare(bool enabled) async {
     _useDiscountedFare = enabled;
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_discountedFarePreferenceKey, enabled);
+  }
+
+  Future<void> setBeepCardFare(bool enabled) async {
+    _useBeepCardFare = enabled;
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_beepCardFarePreferenceKey, enabled);
+  }
+
+  String fareTypeFor(VehicleType vehicleType, {String? fareType}) {
+    if (fareType != null) return fareType;
+    final discounted =
+        _useDiscountedFare ||
+        (vehicleType == VehicleType.train && _useBeepCardFare);
+    return discounted ? 'DISCOUNTED' : 'STANDARD';
   }
 
   Future<double?> calculateLegFare(
@@ -44,8 +62,10 @@ class FareCalculatorService {
       return 0.0;
     }
 
-    final selectedFareType =
-        fareType ?? (_useDiscountedFare ? 'DISCOUNTED' : 'STANDARD');
+    final selectedFareType = fareTypeFor(
+      leg.vehicleType,
+      fareType: fareType,
+    );
     switch (leg.vehicleType) {
       case VehicleType.train:
         return _calculateTrainFare(leg, selectedFareType);

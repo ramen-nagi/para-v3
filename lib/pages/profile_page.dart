@@ -40,7 +40,9 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   StreamSubscription<AuthState>? _authSubscription;
   User? _user;
+  bool _isSigningOut = false;
   bool _isDiscounted = false;
+  bool _isBeepCardFare = false;
   bool _isPenalizeTricycle = false;
   bool _isPenalizeTrain = false;
   bool _isPenalizeJeep = false;
@@ -65,7 +67,10 @@ class _ProfilePageState extends State<ProfilePage> {
     final fareService = FareCalculatorService.instance;
     await fareService.initialize();
     if (!mounted) return;
-    setState(() => _isDiscounted = fareService.useDiscountedFare);
+    setState(() {
+      _isDiscounted = fareService.useDiscountedFare;
+      _isBeepCardFare = fareService.useBeepCardFare;
+    });
   }
 
   Future<void> _loadCommutePreferences() async {
@@ -122,6 +127,17 @@ class _ProfilePageState extends State<ProfilePage> {
 
   void _open(Widget page) {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+  }
+
+  Future<void> _signOut() async {
+    if (_isSigningOut) return;
+    setState(() => _isSigningOut = true);
+    try {
+      await Future<void>.delayed(const Duration(seconds: 1));
+      await Supabase.instance.client.auth.signOut();
+    } finally {
+      if (mounted) setState(() => _isSigningOut = false);
+    }
   }
 
   void _openRecentCommutes() {
@@ -210,8 +226,17 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Sign in or create an account to save places, report issues, and help improve Para.',
+              'Sign in or create an account to save places, report issues, and help improve Para.\n',
             ),
+            const Text(
+              'Users with account enjoy:',
+              style: TextStyle(
+                fontSize: 16,
+              ),
+            ),
+            const Text('• Increased search limit'),
+            const Text('• Save addresses for easier access'),
+            const Text('• Mark routes as favorites'),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -277,10 +302,21 @@ class _ProfilePageState extends State<ProfilePage> {
         _buildSwitchTab(
           icon: Icons.confirmation_number_outlined,
           label: 'Discounted Fare',
+          subtitle: '20% discount for PWD, SC, and Students',
           value: _isDiscounted,
           onChanged: (value) async {
             setState(() => _isDiscounted = value);
             await FareCalculatorService.instance.setDiscountedFare(value);
+          },
+        ),
+        _buildSwitchTab(
+          icon: Icons.credit_card_outlined,
+          label: 'Beep Card Fare',
+          subtitle: 'Beep Card discount for trains',
+          value: _isBeepCardFare,
+          onChanged: (value) async {
+            setState(() => _isBeepCardFare = value);
+            await FareCalculatorService.instance.setBeepCardFare(value);
           },
         ),
         _buildSwitchTab(
@@ -296,7 +332,8 @@ class _ProfilePageState extends State<ProfilePage> {
           label: 'Train',
           subtitle: vehiclePreferenceSubtitle,
           value: !_isPenalizeTrain,
-          onChanged: (value) => _setVehiclePreference(VehicleType.train, !value),
+          onChanged: (value) =>
+              _setVehiclePreference(VehicleType.train, !value),
         ),
         _buildSwitchTab(
           icon: Icons.airport_shuttle,
@@ -310,7 +347,8 @@ class _ProfilePageState extends State<ProfilePage> {
           label: 'E-Jeep',
           subtitle: vehiclePreferenceSubtitle,
           value: !_isPenalizeEjeep,
-          onChanged: (value) => _setVehiclePreference(VehicleType.ejeep, !value),
+          onChanged: (value) =>
+              _setVehiclePreference(VehicleType.ejeep, !value),
         ),
         _buildSwitchTab(
           icon: Icons.directions_bus,
@@ -385,7 +423,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
   List<Widget> _buildAuthenticatedContent(User user) {
     return [
-      // TODO: Make this prettier
       Text(
         user.email!,
         style: TextStyle(
@@ -440,7 +477,13 @@ class _ProfilePageState extends State<ProfilePage> {
           ProfileTabs(
             icon: Icons.logout,
             label: 'Sign Out',
-            onTap: () => Supabase.instance.client.auth.signOut(),
+            trailing: _isSigningOut
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.chevron_right),
+            onTap: _isSigningOut ? null : _signOut,
           ),
         ],
       ),
