@@ -37,7 +37,7 @@ class ProfilePageTermsOfService extends StatelessWidget {
       _heading('Availability and changes'),
       _paragraph('Features, transit datasets, fares, maps, integrations, and availability may change or be discontinued. We may update the app and these Terms. Continued use after an update means you accept the revised Terms.'),
       _heading('Disclaimer and liability'),
-      _paragraph('Para is provided on an “as available” basis. To the extent permitted by law, Para does not guarantee uninterrupted service or complete, current, error-free, or suitable route information. Estimated routes, durations, fares, traffic, and directions are not guarantees.'),
+      _paragraph('Para is provided on an â€œas availableâ€ basis. To the extent permitted by law, Para does not guarantee uninterrupted service or complete, current, error-free, or suitable route information. Estimated routes, durations, fares, traffic, and directions are not guarantees.'),
       _paragraph('To the extent permitted by law, Para and its contributors will not be responsible for indirect, incidental, special, consequential, or other losses arising from your use of, or inability to use, the app. Nothing here excludes rights or liability that cannot legally be excluded.'),
       _heading('Termination'),
       _paragraph('You may stop using Para at any time. Access may be suspended or terminated if you violate these Terms, misuse the app, or create a risk to the service or other users.'),
@@ -46,3 +46,5 @@ class ProfilePageTermsOfService extends StatelessWidget {
     ],
   );
 }
+
+

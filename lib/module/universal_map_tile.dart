@@ -76,7 +76,8 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
     final cappedSheetExtent = widget.isStartingCommute
         ? _maxVisibleSheetExtent
         : sheetExtent.clamp(0.0, _maxVisibleSheetExtent).toDouble();
-    final bottomMargin = MediaQuery.sizeOf(context).height * cappedSheetExtent + 8.0;
+    final bottomMargin =
+        MediaQuery.sizeOf(context).height * cappedSheetExtent + 8.0;
     await map.logo.updateSettings(LogoSettings(marginBottom: bottomMargin));
     await map.attribution.updateSettings(
       AttributionSettings(marginBottom: bottomMargin),
@@ -134,10 +135,14 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
           lineColorExpression: [
             'match',
             ['get', 'congestion'],
-            'low', '#4CAF50',
-            'moderate', '#FF9800',
-            'heavy', '#F44336',
-            'severe', '#F44336',
+            'low',
+            '#4CAF50',
+            'moderate',
+            '#FF9800',
+            'heavy',
+            '#F44336',
+            'severe',
+            '#F44336',
             '#4CAF50',
           ],
         ),
@@ -159,7 +164,8 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
     final mapboxMap = _mapboxMap;
     if (mapboxMap == null) return;
 
-    final permissionState = _locationPermissionState ??
+    final permissionState =
+        _locationPermissionState ??
         await _locationPermissionService.checkPermission();
     if (!mounted) return;
     if (permissionState != LocationPermissionState.granted) {

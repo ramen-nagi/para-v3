@@ -7,7 +7,6 @@ class FareCalculatorService {
   static final FareCalculatorService instance = FareCalculatorService._();
   FareCalculatorService._();
 
-
   static const Set<String> _freeBusRouteIds = {
     'LTFRB_PUB5',
   };

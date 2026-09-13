@@ -131,7 +131,9 @@ class _RoutesPageState extends State<RoutesPage> {
     final allRoutes = GtfsNetworkService.instance.routesMap.values.toList();
     final filtered = _selectedTab == _RouteTab.favorites
         ? allRoutes.where((route) => _favoriteRouteIds.contains(route.routeId))
-        : allRoutes.where((route) => route.vehicleType == _selectedTab.vehicleType);
+        : allRoutes.where(
+            (route) => route.vehicleType == _selectedTab.vehicleType,
+          );
     final routes = filtered.toList();
     if (_selectedTab == _RouteTab.favorites) return routes;
 
@@ -195,7 +197,8 @@ class _RoutesPageState extends State<RoutesPage> {
     await AuthRequiredDialog.show(
       context: context,
       title: 'Sign in to save routes',
-      content: 'Create an account or sign in to favorite routes and access them later.',
+      content:
+          'Create an account or sign in to favorite routes and access them later.',
     );
   }
 
@@ -241,6 +244,28 @@ class _RoutesPageState extends State<RoutesPage> {
   ) {
     if (service.isDownloading) {
       return const Center(child: CircularProgressIndicator());
+    }
+
+    if (service.errorMessage != null && allCategoryRoutes.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_outlined, size: 48),
+            const SizedBox(height: 12),
+            Text(
+              service.errorMessage!,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: service.initializeAndSync,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
     }
 
     if (allCategoryRoutes.isEmpty) {
@@ -365,9 +390,7 @@ class _RoutesPageState extends State<RoutesPage> {
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
-              color: isSelected
-                  ? selectedColor
-                  : Colors.transparent,
+              color: isSelected ? selectedColor : Colors.transparent,
               width: 3.0,
             ),
           ),
@@ -382,5 +405,4 @@ class _RoutesPageState extends State<RoutesPage> {
       ),
     );
   }
-
 }

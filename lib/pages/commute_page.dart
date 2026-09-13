@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:para_v3/module/auth_required_dialog.dart';
 import 'package:para_v3/module/drag_scroll_sheet.dart';
 import 'package:para_v3/module/location_textfield.dart';
 import 'package:para_v3/module/route_suggestion_button.dart';
@@ -17,6 +21,8 @@ import 'package:para_v3/services/route_progress_service.dart';
 import 'package:para_v3/services/fare_calculator_service.dart';
 import 'package:para_v3/services/commute_preferences_service.dart';
 import 'package:para_v3/services/recents_service.dart';
+import 'package:para_v3/services/location_share_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CommutePageController {
   _CommutePageState? _state;
@@ -74,6 +80,7 @@ class _CommutePageState extends State<CommutePage> {
 
   final _originController = TextEditingController();
   final _destinationController = TextEditingController();
+  final _locationShareService = LocationShareService();
   Position? _originPosition;
   Position? _destinationPosition;
   String? _originMainText;
@@ -87,11 +94,16 @@ class _CommutePageState extends State<CommutePage> {
   int _activeLegIndex = 0;
   int _drawnJourneyPolylineCount = 0;
   StreamSubscription<geo.Position>? _gpsSubscription;
+  geo.Position? _lastGpsPosition;
   double _activeLegProgressMeters = 0;
   int _nearLegEndUpdates = 0;
   bool _isOffRoute = false;
   bool _isUpdatingGpsProgress = false;
   bool _isBuildingJourneys = false;
+  bool _hasSearchedForJourneys = false;
+  String? _journeySearchError;
+  bool _isChangingLocationShare = false;
+  bool _shareUpdateErrorShown = false;
 
   bool get _isCommuting => _sheetView == _CommuteSheetView.activeLeg;
   bool get _isCommuteComplete =>
@@ -116,6 +128,9 @@ class _CommutePageState extends State<CommutePage> {
   void dispose() {
     widget.controller?._detach(this);
     _gpsSubscription?.cancel();
+    if (_locationShareService.isSharing) {
+      unawaited(_locationShareService.stop().catchError((_) {}));
+    }
     _originController.dispose();
     _destinationController.dispose();
     super.dispose();
@@ -146,7 +161,15 @@ class _CommutePageState extends State<CommutePage> {
     });
     final origin = _originPosition;
     final destination = _destinationPosition;
-    if (origin == null || destination == null) return;
+    if (origin == null || destination == null) {
+      setState(() {
+        _journeys = [];
+        _selectedJourney = null;
+        _hasSearchedForJourneys = false;
+        _journeySearchError = null;
+      });
+      return;
+    }
     await _showOriginDestinationMarkersAndFit();
     await _runRaptor(origin, destination);
   }
@@ -158,42 +181,62 @@ class _CommutePageState extends State<CommutePage> {
         _journeys = [];
         _selectedJourney = null;
         _sheetView = _CommuteSheetView.journeyOverviews;
+        _hasSearchedForJourneys = true;
+        _journeySearchError = null;
       });
     }
-    final preferences = CommutePreferencesService.instance;
-    await preferences.initialize();
-    final penalizedVehicleTypes = preferences.penalizedVehicleTypes;
-    final journeys = await RaptorPathfindingService.instance.findJourneys(
-      originLat: origin.lat.toDouble(),
-      originLng: origin.lng.toDouble(),
-      destLat: destination.lat.toDouble(),
-      destLng: destination.lng.toDouble(),
-      penalizedVehicleTypes: penalizedVehicleTypes,
-      walkingDistanceResolver: MapMatchingService.fetchWalkingDistances,
-    );
+    try {
+      final preferences = CommutePreferencesService.instance;
+      await preferences.initialize();
+      final penalizedVehicleTypes = preferences.penalizedVehicleTypes;
+      final journeys = await RaptorPathfindingService.instance.findJourneys(
+        originLat: origin.lat.toDouble(),
+        originLng: origin.lng.toDouble(),
+        destLat: destination.lat.toDouble(),
+        destLng: destination.lng.toDouble(),
+        penalizedVehicleTypes: penalizedVehicleTypes,
+        walkingDistanceResolver: MapMatchingService.fetchWalkingDistances,
+      );
 
-    for (final journey in journeys) {
-      await _enrichJourneyLegs(journey);
-    }
-    journeys.sort(
-      (a, b) => a
-          .calculateRankingCost(
-            penalizedVehicleTypes: penalizedVehicleTypes,
-          )
-          .compareTo(
-            b.calculateRankingCost(
+      for (final journey in journeys) {
+        await _enrichJourneyLegs(journey);
+      }
+
+      journeys.sort(
+        (a, b) => a
+            .calculateRankingCost(
               penalizedVehicleTypes: penalizedVehicleTypes,
+            )
+            .compareTo(
+              b.calculateRankingCost(
+                penalizedVehicleTypes: penalizedVehicleTypes,
+              ),
             ),
-          ),
-    );
-    if (!mounted) return;
+      );
+      if (!mounted) return;
 
-    setState(() {
-      _journeys = journeys;
-      _selectedJourney = null;
-      _sheetView = _CommuteSheetView.journeyOverviews;
-      _isBuildingJourneys = false;
-    });
+      setState(() {
+        _journeys = journeys;
+        _selectedJourney = null;
+        _sheetView = _CommuteSheetView.journeyOverviews;
+        _isBuildingJourneys = false;
+      });
+    } catch (error) {
+      debugPrint('Could not build journeys: $error');
+      if (!mounted) return;
+      setState(() {
+        _isBuildingJourneys = false;
+        _journeySearchError =
+            'Could not search for routes. Check your connection and try again.';
+      });
+    }
+  }
+
+  Future<void> _retryJourneySearch() async {
+    final origin = _originPosition;
+    final destination = _destinationPosition;
+    if (origin == null || destination == null) return;
+    await _runRaptor(origin, destination);
   }
 
   Future<void> _enrichJourneyLegs(Journey journey) async {
@@ -414,6 +457,46 @@ class _CommutePageState extends State<CommutePage> {
     );
   }
 
+  geo.LocationSettings _gpsSettings() {
+    if (!_locationShareService.isSharing) {
+      return const geo.LocationSettings(
+        accuracy: geo.LocationAccuracy.high,
+        distanceFilter: 10,
+      );
+    }
+
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return geo.AndroidSettings(
+        accuracy: geo.LocationAccuracy.high,
+        distanceFilter: 10,
+        intervalDuration: const Duration(seconds: 10),
+        foregroundNotificationConfig: const geo.ForegroundNotificationConfig(
+          notificationTitle: 'Para live location',
+          notificationText:
+              'Your location is being shared. Open Para to manage sharing.',
+          notificationChannelName: 'Live location sharing',
+          enableWakeLock: true,
+          setOngoing: true,
+        ),
+      );
+    }
+
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      return geo.AppleSettings(
+        accuracy: geo.LocationAccuracy.high,
+        activityType: geo.ActivityType.otherNavigation,
+        distanceFilter: 10,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+      );
+    }
+
+    return const geo.LocationSettings(
+      accuracy: geo.LocationAccuracy.high,
+      distanceFilter: 10,
+    );
+  }
+
   Future<void> _startGpsTracking() async {
     await _gpsSubscription?.cancel();
     if (!await geo.Geolocator.isLocationServiceEnabled()) {
@@ -432,10 +515,7 @@ class _CommutePageState extends State<CommutePage> {
     }
 
     _gpsSubscription = geo.Geolocator.getPositionStream(
-      locationSettings: const geo.LocationSettings(
-        accuracy: geo.LocationAccuracy.high,
-        distanceFilter: 10,
-      ),
+      locationSettings: _gpsSettings(),
     ).listen(_handleGpsPosition, onError: _handleGpsError);
   }
 
@@ -446,6 +526,13 @@ class _CommutePageState extends State<CommutePage> {
 
   Future<void> _handleGpsPosition(geo.Position gpsPosition) async {
     final journey = _selectedJourney;
+    if (gpsPosition.accuracy <= 60) {
+      _lastGpsPosition = gpsPosition;
+      if (journey != null && _locationShareService.isSharing) {
+        unawaited(_updateSharedLocation(gpsPosition, journey));
+      }
+    }
+
     if (!_isCommuting ||
         journey == null ||
         _isUpdatingGpsProgress ||
@@ -524,6 +611,309 @@ class _CommutePageState extends State<CommutePage> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _recalculateRoute() async {
+    final gpsPosition = _lastGpsPosition;
+    final destination = _destinationPosition;
+
+    if (gpsPosition == null || gpsPosition.accuracy > 60) {
+      _showGpsMessage(
+        'A more accurate GPS location is needed to recalculate your route.',
+      );
+      return;
+    }
+    if (destination == null) {
+      _showGpsMessage('Your original destination is no longer available.');
+      return;
+    }
+
+    await _stopGpsTracking();
+    if (_locationShareService.isSharing) {
+      await _stopLiveLocationShare(showMessage: false, restartGps: false);
+    }
+    await _clearJourneyMapOverlays();
+    if (!mounted) return;
+
+    final currentPosition = Position(
+      gpsPosition.longitude,
+      gpsPosition.latitude,
+    );
+    _originController.text = 'Current location';
+    setState(() {
+      _originPosition = currentPosition;
+      _originMainText = 'Current location';
+      _isOffRoute = false;
+    });
+
+    await _showOriginDestinationMarkersAndFit();
+    await _runRaptor(currentPosition, destination);
+  }
+
+  String _sharedRouteName(Leg leg) {
+    return leg.isWalking ? 'Walk' : (leg.routeLongName ?? 'Transit');
+  }
+
+  Future<void> _updateSharedLocation(
+    geo.Position position,
+    Journey journey, {
+    bool force = false,
+  }) async {
+    if (!_locationShareService.isSharing || journey.legs.isEmpty) return;
+    final leg = journey.legs[_activeLegIndex];
+
+    try {
+      await _locationShareService.update(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        transportMode: leg.vehicleType.name,
+        routeName: _sharedRouteName(leg),
+        legFrom: leg.fromStopName,
+        legTo: leg.toStopName,
+        legNumber: _activeLegIndex + 1,
+        legCount: journey.legs.length,
+        force: force,
+      );
+      _shareUpdateErrorShown = false;
+    } catch (_) {
+      if (mounted && !_shareUpdateErrorShown) {
+        _shareUpdateErrorShown = true;
+        _showGpsMessage(
+          'Live-location update failed. Para will try again as you move.',
+        );
+      }
+    }
+  }
+
+  Future<bool> _requestBackgroundSharingPermission() async {
+    if (!await geo.Geolocator.isLocationServiceEnabled()) {
+      _showGpsMessage('Please enable location services first.');
+      return false;
+    }
+
+    var foregroundPermission = await Permission.locationWhenInUse.status;
+    if (!foregroundPermission.isGranted) {
+      foregroundPermission = await Permission.locationWhenInUse.request();
+    }
+    if (!foregroundPermission.isGranted) {
+      _showGpsMessage('Location permission is required to share your trip.');
+      return false;
+    }
+
+    final backgroundPermission = await Permission.locationAlways.status;
+    if (!backgroundPermission.isGranted) {
+      if (!mounted) return false;
+      final continueRequest = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Allow background location'),
+          content: const Text(
+            'Para needs background location only while you are actively '
+            'sharing. This keeps the safety link updated when your screen is '
+            'locked or you use another app.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Not now'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      );
+      if (continueRequest != true) return false;
+
+      final result = await Permission.locationAlways.request();
+      if (!result.isGranted) {
+        if (!mounted) return false;
+        final openSettings = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Background location is off'),
+            content: const Text(
+              'Open Settings and allow location access all the time to use '
+              'background sharing.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        );
+        if (openSettings == true) await openAppSettings();
+        return false;
+      }
+    }
+
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      await Permission.notification.request();
+    }
+    return true;
+  }
+
+  Future<void> _startLiveLocationShare(Journey journey) async {
+    if (_isChangingLocationShare || _locationShareService.isSharing) return;
+    if (Supabase.instance.client.auth.currentUser == null) {
+      await AuthRequiredDialog.show(
+        context: context,
+        title: 'Sign in to share your location',
+        content:
+            'An account keeps your live-location session private and lets '
+            'Para remove it when sharing ends.',
+      );
+      return;
+    }
+
+    if (!await _requestBackgroundSharingPermission() || !mounted) return;
+
+    setState(() => _isChangingLocationShare = true);
+    try {
+      final position = await geo.Geolocator.getCurrentPosition(
+        locationSettings: const geo.LocationSettings(
+          accuracy: geo.LocationAccuracy.high,
+        ),
+      );
+      if (position.accuracy > 80) {
+        throw StateError(
+          'Could not get an accurate location. Please try again.',
+        );
+      }
+
+      final leg = journey.legs[_activeLegIndex];
+      final destination = _destinationPosition;
+      final destinationName =
+          journey.destinationMainText?.trim().isNotEmpty == true
+          ? journey.destinationMainText!.trim()
+          : _destinationController.text.trim();
+
+      await _locationShareService.start(
+        displayName: 'The user',
+        latitude: position.latitude,
+        longitude: position.longitude,
+        destinationName: destinationName.isEmpty
+            ? journey.legs.last.toStopName
+            : destinationName,
+        destinationLatitude: destination?.lat.toDouble(),
+        destinationLongitude: destination?.lng.toDouble(),
+        transportMode: leg.vehicleType.name,
+        routeName: _sharedRouteName(leg),
+        legFrom: leg.fromStopName,
+        legTo: leg.toStopName,
+        legNumber: _activeLegIndex + 1,
+        legCount: journey.legs.length,
+      );
+      _lastGpsPosition = position;
+      await _startGpsTracking();
+      if (!mounted) return;
+      setState(() {});
+      _showLocationShareSheet();
+    } catch (error) {
+      if (_locationShareService.isSharing) {
+        try {
+          await _locationShareService.stop();
+        } catch (_) {}
+      }
+      _showGpsMessage(
+        error.toString().replaceFirst('Bad state: ', ''),
+      );
+    } finally {
+      if (mounted) setState(() => _isChangingLocationShare = false);
+    }
+  }
+
+  Future<void> _stopLiveLocationShare({
+    bool showMessage = true,
+    bool restartGps = true,
+  }) async {
+    if (!_locationShareService.isSharing) return;
+    setState(() => _isChangingLocationShare = true);
+    try {
+      await _locationShareService.stop();
+      if (showMessage) _showGpsMessage('Live-location sharing stopped.');
+    } catch (_) {
+      _showGpsMessage(
+        'Sharing stopped on this phone. The link will expire within five minutes.',
+      );
+    } finally {
+      if (restartGps && _isCommuting) await _startGpsTracking();
+      if (mounted) setState(() => _isChangingLocationShare = false);
+    }
+  }
+
+  void _showLocationShareSheet() {
+    final link = _locationShareService.shareUrl;
+    if (link == null) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.share_location, color: Colors.green),
+                SizedBox(width: 8),
+                Text(
+                  'Live location is active',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Para will keep updating this safety link in the background. '
+              'Anyone with the link can view your shared trip.',
+            ),
+            const SizedBox(height: 16),
+            SelectableText(link),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: link));
+                  if (sheetContext.mounted) {
+                    ScaffoldMessenger.of(sheetContext).showSnackBar(
+                      const SnackBar(content: Text('Tracking link copied.')),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.copy),
+                label: const Text('Copy link'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _isChangingLocationShare
+                    ? null
+                    : () async {
+                        Navigator.of(sheetContext).pop();
+                        await _stopLiveLocationShare();
+                      },
+                icon: const Icon(Icons.stop_circle_outlined),
+                label: const Text('Stop sharing'),
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _clearJourneyMapOverlays() async {
@@ -614,6 +1004,9 @@ class _CommutePageState extends State<CommutePage> {
     required bool saveToHistory,
   }) async {
     if (journey.legs.isEmpty) return;
+    if (_locationShareService.isSharing) {
+      await _stopLiveLocationShare(showMessage: false, restartGps: false);
+    }
     setState(() {
       _selectedJourney = journey;
       _sheetView = _CommuteSheetView.activeLeg;
@@ -621,6 +1014,8 @@ class _CommutePageState extends State<CommutePage> {
       _activeLegProgressMeters = 0;
       _nearLegEndUpdates = 0;
       _isOffRoute = false;
+      _hasSearchedForJourneys = false;
+      _journeySearchError = null;
     });
     if (saveToHistory) {
       try {
@@ -680,6 +1075,10 @@ class _CommutePageState extends State<CommutePage> {
     if (coordinates != null) await _updateLegPolyline(index, coordinates);
     await _updateJourneyPolylineOpacity(activeLegIndex: index);
     await _focusLegOnMap(journey.legs[index]);
+    final lastPosition = _lastGpsPosition;
+    if (lastPosition != null && _locationShareService.isSharing) {
+      await _updateSharedLocation(lastPosition, journey, force: true);
+    }
   }
 
   Future<void> _advanceToLeg(Journey journey, int index) async {
@@ -689,6 +1088,9 @@ class _CommutePageState extends State<CommutePage> {
 
   Future<void> _showJourneyDetails(Journey journey) async {
     await _stopGpsTracking();
+    if (_locationShareService.isSharing) {
+      await _stopLiveLocationShare(showMessage: false, restartGps: false);
+    }
     if (!mounted) return;
     setState(() {
       _sheetView = _CommuteSheetView.journeyDetails;
@@ -699,6 +1101,9 @@ class _CommutePageState extends State<CommutePage> {
 
   Future<void> _completeCommute(Journey journey) async {
     await _stopGpsTracking();
+    if (_locationShareService.isSharing) {
+      await _stopLiveLocationShare(showMessage: false, restartGps: false);
+    }
     if (!mounted) return;
     setState(() {
       _sheetView = _CommuteSheetView.commuteComplete;
@@ -709,6 +1114,9 @@ class _CommutePageState extends State<CommutePage> {
 
   Future<void> _resetCommute() async {
     await _stopGpsTracking();
+    if (_locationShareService.isSharing) {
+      await _stopLiveLocationShare(showMessage: false, restartGps: false);
+    }
     await _clearJourneyMapOverlays();
     await _endpointAnnotationManager?.deleteAll();
     if (!mounted) return;
@@ -1028,10 +1436,14 @@ class _CommutePageState extends State<CommutePage> {
     return '₱${fare.toStringAsFixed(2)}';
   }
 
-  Widget _oneLineText(String text, {TextStyle? style}) {
+  Widget _oneLineText(
+    String text, {
+    TextStyle? style,
+    int maxLines = 1,
+  }) {
     return Text(
       text,
-      maxLines: 1,
+      maxLines: maxLines,
       overflow: TextOverflow.ellipsis,
       style: style,
     );
@@ -1211,6 +1623,28 @@ class _CommutePageState extends State<CommutePage> {
                 ),
               ),
             ),
+            IconButton(
+              onPressed: _isChangingLocationShare
+                  ? null
+                  : _locationShareService.isSharing
+                  ? _showLocationShareSheet
+                  : () => _startLiveLocationShare(journey),
+              tooltip: _locationShareService.isSharing
+                  ? 'Manage live location'
+                  : 'Share live location',
+              color: _locationShareService.isSharing ? Colors.green : null,
+              icon: _isChangingLocationShare
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      _locationShareService.isSharing
+                          ? Icons.share_location
+                          : Icons.share_location_outlined,
+                    ),
+            ),
             ReportButton(
               routeId: leg.routeId,
               tripId: leg.tripId,
@@ -1272,11 +1706,13 @@ class _CommutePageState extends State<CommutePage> {
           const SizedBox(height: 10),
           _oneLineText(
             'From: $fromName',
+            maxLines: 2,
             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           _oneLineText(
             'To: $toName',
+            maxLines: 2,
             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           ),
         ],
@@ -1308,6 +1744,7 @@ class _CommutePageState extends State<CommutePage> {
                     Expanded(
                       child: _oneLineText(
                         leg.steps![index].instruction,
+                        maxLines: 2,
                         style: const TextStyle(fontSize: 13),
                       ),
                     ),
@@ -1329,20 +1766,38 @@ class _CommutePageState extends State<CommutePage> {
               color: colorScheme.errorContainer,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  size: 17,
-                  color: colorScheme.onErrorContainer,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'You are off the active route.',
-                    style: TextStyle(
+                Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 17,
                       color: colorScheme.onErrorContainer,
-                      fontSize: 12,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'You are off the active route.',
+                        style: TextStyle(
+                          color: colorScheme.onErrorContainer,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _isBuildingJourneys ? null : _recalculateRoute,
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Recalculate route'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: colorScheme.error,
+                      foregroundColor: colorScheme.onError,
                     ),
                   ),
                 ),
@@ -1529,6 +1984,7 @@ class _CommutePageState extends State<CommutePage> {
                 children: [
                   _oneLineText(
                     stopName,
+                    maxLines: 2,
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
@@ -1605,6 +2061,7 @@ class _CommutePageState extends State<CommutePage> {
         Expanded(
           child: _oneLineText(
             destinationName,
+            maxLines: 2,
             style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w700,
@@ -1683,18 +2140,50 @@ class _CommutePageState extends State<CommutePage> {
                   ? 'complete-commute-sheet'
                   : 'active-commute-sheet',
             ),
-            initialChildSize: _isCommuteComplete ? 0.36 : 0.22,
-            minChildSize: _isCommuteComplete ? 0.25 : 0.1,
-            maxChildSize: _isCommuteComplete ? 0.45 : 0.22,
+            initialChildSize: _isCommuteComplete ? 0.36 : 0.32,
+            minChildSize: _isCommuteComplete ? 0.25 : 0.12,
+            maxChildSize: _isCommuteComplete ? 0.45 : 0.65,
             snapSizes: _isCommuteComplete
                 ? const [0.25, 0.36, 0.45]
-                : const [0.1, 0.22],
+                : const [0.12, 0.32, 0.65],
             children: [
               if (_isCommuteComplete)
                 _buildCommuteCompleteView(_selectedJourney!)
               else
                 _buildActiveLegView(_selectedJourney!),
             ],
+          ),
+
+        if (_hasSearchedForJourneys &&
+            _journeys.isEmpty &&
+            !_isBuildingJourneys)
+          Positioned(
+            top: 160,
+            left: 24,
+            right: 24,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.route_outlined, size: 40),
+                    const SizedBox(height: 10),
+                    Text(
+                      _journeySearchError ??
+                          'No routes found. Try different locations or search again.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: _retryJourneySearch,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
 
         if (_isBuildingJourneys)

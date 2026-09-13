@@ -25,7 +25,13 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Para uses your location to show your live position and heading on the map.</string>
+	<string>Para uses your location to show your position and track progress during a commute.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Para uses your location in the background only while you share a live commute with a trusted contact.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

@@ -1,0 +1,13 @@
+{
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/track", "destination": "/track.html" }
+  ],
+  "headers": [
+    {
+      "source": "/track.html",
+      "headers": [{ "key": "Cache-Control", "value": "no-store" }]
+    }
+  ]
+}

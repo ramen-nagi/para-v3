@@ -218,7 +218,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 Expanded(
                   child: FilledButton(
                     onPressed: () => _open(const ProfilePageSignUp()),
-                    child: const Text('Create account'),
+                    child: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('Create account'),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),

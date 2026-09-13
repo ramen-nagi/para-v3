@@ -23,8 +23,18 @@ class RoutesPageMap extends StatefulWidget {
 class _RoutesPageMapState extends State<RoutesPageMap> {
   MapboxMap? _mapboxMap;
   CircleAnnotationManager? _stopAnnotationManager;
+  Cancelable? _stopTapListener;
+  final Map<String, String> _stopLabels = {};
   String? _selectedTripId;
   RouteMetadataResult? _selectedTripMetadata;
+
+  List<StopsAndStopTimesModel> _getStops(String tripId) {
+    final trip = widget.route.trips.where((trip) => trip.tripId == tripId);
+    if (trip.isEmpty) return [];
+
+    return List<StopsAndStopTimesModel>.from(trip.first.stopTimes)
+      ..sort((a, b) => a.stopSequence.compareTo(b.stopSequence));
+  }
 
   List<Position> _getStopTimesStopsCoord(String tripId) {
     final trip = widget.route.trips.where((trip) => trip.tripId == tripId);
@@ -52,25 +62,60 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
     final map = _mapboxMap;
     if (map == null) return;
 
-    final positions = _getStopTimesStopsCoord(tripId);
-    final manager = _stopAnnotationManager ??= await map.annotations
-        .createCircleAnnotationManager(id: 'route-stop-markers');
+    final stops = _getStops(tripId);
+    final positions = stops
+        .map((stop) => Position(stop.stopLon, stop.stopLat))
+        .toList();
+    var manager = _stopAnnotationManager;
+    if (manager == null) {
+      manager = await map.annotations.createCircleAnnotationManager(
+        id: 'route-stop-markers',
+      );
+      _stopAnnotationManager = manager;
+      _stopTapListener?.cancel();
+      _stopTapListener = manager.tapEvents(onTap: _showStopName);
+    }
     await manager.deleteAll();
+    _stopLabels.clear();
     if (positions.isEmpty) return;
 
-    await manager.createMulti(
-      positions.asMap().entries
+    final annotations = await manager.createMulti(
+      positions
+          .asMap()
+          .entries
           .map(
             (entry) => CircleAnnotationOptions(
               geometry: Point(coordinates: entry.value),
               circleColor: _stopMarkerColor(entry.key, positions.length),
-              circleRadius: 4,
+              circleRadius: 6,
               circleStrokeColor: 0xFFFFFFFF,
               circleStrokeWidth: 1.5,
             ),
           )
           .toList(),
     );
+
+    for (var index = 0; index < annotations.length; index++) {
+      final annotation = annotations[index];
+      if (annotation == null) continue;
+      _stopLabels[annotation.id] =
+          'Stop ${index + 1} of ${stops.length}: ${stops[index].stopName}';
+    }
+  }
+
+  void _showStopName(CircleAnnotation annotation) {
+    final label = _stopLabels[annotation.id];
+    if (label == null || !mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(label),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+        ),
+      );
   }
 
   int _stopMarkerColor(int index, int totalStops) {
@@ -118,33 +163,36 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () async {
-        final map = _mapboxMap;
+          final map = _mapboxMap;
 
-        final isTrain = widget.route.vehicleType == VehicleType.train;
-        final result = isTrain
-            ? await MapMatchingService.fetchRouteMetadataResultTrain(
-                widget.route.vehicleType,
-                _getShapeCoordinates(trip),
-                routeId: widget.route.routeId,
-              )
-            : await MapMatchingService.fetchMapMatching(
-                'driving-traffic',
-                _getStopTimesStopsCoord(trip.tripId),
-              );
-        if (result == null) return;
+          final isTrain = widget.route.vehicleType == VehicleType.train;
+          final result = isTrain
+              ? await MapMatchingService.fetchRouteMetadataResultTrain(
+                  widget.route.vehicleType,
+                  _getShapeCoordinates(trip),
+                  routeId: widget.route.routeId,
+                )
+              : await MapMatchingService.fetchMapMatching(
+                  'driving-traffic',
+                  _getStopTimesStopsCoord(trip.tripId),
+                );
+          if (result == null) return;
 
-        if (!mounted) return;
-        setState(() {
-          _selectedTripId = trip.tripId;
-          _selectedTripMetadata = result;
-        });
+          if (!mounted) return;
+          setState(() {
+            _selectedTripId = trip.tripId;
+            _selectedTripMetadata = result;
+          });
 
-        await MapMatchingService.drawPolyline(map!, result.coordinates);
-        await _drawRouteStops(trip.tripId);
-        await _panCameraToFitTrip(trip);
+          await MapMatchingService.drawPolyline(map!, result.coordinates);
+          await _drawRouteStops(trip.tripId);
+          await _panCameraToFitTrip(trip);
         },
         child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 8,
+          ),
           leading: Icon(getIconForType(widget.route.vehicleType)),
           title: Row(
             children: [
@@ -169,7 +217,16 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
               ),
             ],
           ),
-          subtitle: _buildTripMetadataSubtitle(stops.length, trip.tripId),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildTripMetadataSubtitle(stops.length, trip.tripId),
+              if (_selectedTripId == trip.tripId) ...[
+                const SizedBox(height: 4),
+                const Text('Tap a stop marker to view its name.'),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -184,8 +241,14 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         _metadataItem(Icons.place_outlined, '$stopCount stops'),
-        _metadataItem(Icons.straighten, _formatDistance(metadata.distanceMeters)),
-        _metadataItem(Icons.schedule, _formatDuration(metadata.durationSeconds)),
+        _metadataItem(
+          Icons.straighten,
+          _formatDistance(metadata.distanceMeters),
+        ),
+        _metadataItem(
+          Icons.schedule,
+          _formatDuration(metadata.durationSeconds),
+        ),
       ],
     );
   }
@@ -212,6 +275,12 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
   }
 
   @override
+  void dispose() {
+    _stopTapListener?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: ParaAppBar(title: widget.route.routeLongName),
@@ -226,8 +295,7 @@ class _RoutesPageMapState extends State<RoutesPageMap> {
           DragScrollSheet(
             initialChildSize: 0.22,
             children: [
-              for (final trip in widget.route.trips)
-                _buildTripButton(trip),
+              for (final trip in widget.route.trips) _buildTripButton(trip),
               const RouteSuggestionButton(),
             ],
           ),

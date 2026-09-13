@@ -16,8 +16,7 @@ enum VehicleType {
   bus(4),
   uvExpress(5),
   walk(6),
-  ejeep(7)
-  ;
+  ejeep(7);
 
   final int rawValue;
   const VehicleType(this.rawValue);
@@ -109,12 +108,14 @@ class GtfsNetworkService extends ChangeNotifier {
 
   bool isLoaded = false;
   bool isDownloading = false;
+  String? errorMessage;
 
   final Map<String, RoutesModel> routesMap = {};
 
   Future<void> initializeAndSync() async {
     try {
       isDownloading = true;
+      errorMessage = null;
       notifyListeners();
 
       final prefs = await SharedPreferences.getInstance();
@@ -157,6 +158,8 @@ class GtfsNetworkService extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       isDownloading = false;
+      errorMessage =
+          'Routes could not be loaded. Check your connection and try again.';
       notifyListeners();
       debugPrint('Error loading dataset: $e');
     }
