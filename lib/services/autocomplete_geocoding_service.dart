@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
@@ -55,6 +57,9 @@ class PlaceSuggestion {
 }
 
 class AutocompleteGeocodingService {
+  static const _appIdentityChannel = MethodChannel(
+    'com.parametromanila/app_identity',
+  );
   static const _maxResults = 5;
   static const _guestDailyLimit = 25;
   static const _guestRequestCountKey = 'guest_autocomplete_request_count';
@@ -70,6 +75,7 @@ class AutocompleteGeocodingService {
 
   Timer? _debounce;
   Completer<List<PlaceSuggestion>>? _pendingSuggestions;
+  Future<Map<String, String>>? _androidIdentityHeaders;
   String? _sessionToken;
   bool _quotaExceeded = false;
 
@@ -149,16 +155,15 @@ class AutocompleteGeocodingService {
   ) async {
     _sessionToken ??= _generateSessionToken();
     try {
+      final headers = await _googleHeaders(
+        fieldMask:
+            'suggestions.placePrediction.placeId,'
+            'suggestions.placePrediction.text,'
+            'suggestions.placePrediction.structuredFormat',
+      );
       final response = await http.post(
         Uri.parse('https://places.googleapis.com/v1/places:autocomplete'),
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': _apiKey,
-          'X-Goog-FieldMask':
-              'suggestions.placePrediction.placeId,'
-              'suggestions.placePrediction.text,'
-              'suggestions.placePrediction.structuredFormat',
-        },
+        headers: headers,
         body: jsonEncode({
           'input': query,
           'includedRegionCodes': ['ph'],
@@ -218,11 +223,12 @@ class AutocompleteGeocodingService {
 
   Future<Position?> geocode(PlaceSuggestion suggestion) async {
     try {
+      final headers = await _googleHeaders(fieldMask: 'location');
       final response = await http.get(
         Uri.parse(
           'https://places.googleapis.com/v1/places/${suggestion.placeId}',
         ),
-        headers: {'X-Goog-Api-Key': _apiKey, 'X-Goog-FieldMask': 'location'},
+        headers: headers,
       );
       if (response.statusCode != 200) {
         throw ServiceException(
@@ -259,6 +265,49 @@ class AutocompleteGeocodingService {
 
   void dispose() {
     cancelPendingSuggestions();
+  }
+
+  Future<Map<String, String>> _googleHeaders({
+    required String fieldMask,
+  }) async {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': _apiKey,
+      'X-Goog-FieldMask': fieldMask,
+    };
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      headers.addAll(await _getAndroidIdentityHeaders());
+    }
+    return headers;
+  }
+
+  Future<Map<String, String>> _getAndroidIdentityHeaders() {
+    return _androidIdentityHeaders ??= _loadAndroidIdentityHeaders();
+  }
+
+  Future<Map<String, String>> _loadAndroidIdentityHeaders() async {
+    try {
+      final identity = await _appIdentityChannel
+          .invokeMapMethod<String, String>('getGoogleApiIdentity');
+      final packageName = identity?['packageName'];
+      final certificateSha1 = identity?['certificateSha1'];
+      if (packageName == null ||
+          packageName.isEmpty ||
+          certificateSha1 == null ||
+          certificateSha1.isEmpty) {
+        throw const ServiceException(ServiceFailureKind.configuration);
+      }
+      return {
+        'X-Android-Package': packageName,
+        'X-Android-Cert': certificateSha1,
+      };
+    } on ServiceException {
+      rethrow;
+    } on PlatformException {
+      throw const ServiceException(ServiceFailureKind.configuration);
+    } on MissingPluginException {
+      throw const ServiceException(ServiceFailureKind.configuration);
+    }
   }
 
   String _generateSessionToken() {

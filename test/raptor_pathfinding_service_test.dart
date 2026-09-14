@@ -29,6 +29,28 @@ void main() {
   final network = GtfsNetworkService.instance;
   final pathfinder = RaptorPathfindingService.instance;
 
+  test('adds 120 seconds per kilometre to non-train transit duration', () {
+    expect(
+      Journey.adjustTransitDuration(
+        vehicleType: VehicleType.bus,
+        durationSeconds: 600,
+        distanceMeters: 2500,
+      ),
+      900,
+    );
+  });
+
+  test('does not adjust train duration', () {
+    expect(
+      Journey.adjustTransitDuration(
+        vehicleType: VehicleType.train,
+        durationSeconds: 600,
+        distanceMeters: 2500,
+      ),
+      600,
+    );
+  });
+
   setUp(() {
     network.routesMap.clear();
     network.isLoaded = true;

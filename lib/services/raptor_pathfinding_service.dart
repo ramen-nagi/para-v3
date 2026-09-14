@@ -135,6 +135,17 @@ class Journey {
   static const double transitDistanceWeight = 0.5;
   static const double trainDistanceWeight = 0.3;
   static const double transferPenalty = 500.0;
+  static const double nonTrainTransitSecondsPerKm = 120.0;
+
+  static double adjustTransitDuration({
+    required VehicleType vehicleType,
+    required double durationSeconds,
+    required double distanceMeters,
+  }) {
+    if (vehicleType == VehicleType.train) return durationSeconds;
+    return durationSeconds +
+        (distanceMeters / 1000.0) * nonTrainTransitSecondsPerKm;
+  }
 
   static double distanceWeight(VehicleType type, {bool penalized = false}) =>
       (type == VehicleType.train

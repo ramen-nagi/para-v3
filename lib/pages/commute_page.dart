@@ -279,7 +279,16 @@ class _CommutePageState extends State<CommutePage> {
       if (metadata == null) continue;
       leg.coordinates = metadata.coordinates;
       leg.distance = metadata.distanceMeters;
-      leg.durationSeconds = metadata.durationSeconds;
+      final mappedDuration = metadata.durationSeconds;
+      leg.durationSeconds = mappedDuration == null ||
+              leg.isWalking ||
+              leg.vehicleType == VehicleType.train
+          ? mappedDuration
+          : Journey.adjustTransitDuration(
+              vehicleType: leg.vehicleType,
+              durationSeconds: mappedDuration,
+              distanceMeters: metadata.distanceMeters,
+            );
       leg.traffic = metadata.traffic;
       leg.steps = metadata.steps;
 
