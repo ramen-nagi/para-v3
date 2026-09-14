@@ -61,10 +61,14 @@ class _ReportsPageState extends State<ReportsPage> {
   @override
   void initState() {
     super.initState();
-    _set(_routeId, widget.routeId); _set(_tripId, widget.tripId);
-    _set(_fromId, widget.fromStopId); _set(_toId, widget.toStopId);
-    _set(_vehicle, widget.vehicleType); _set(_routeName, widget.routeLongName);
-    _set(_fromName, widget.fromStopName); _set(_toName, widget.toStopName);
+    _set(_routeId, widget.routeId);
+    _set(_tripId, widget.tripId);
+    _set(_fromId, widget.fromStopId);
+    _set(_toId, widget.toStopId);
+    _set(_vehicle, widget.vehicleType);
+    _set(_routeName, widget.routeLongName);
+    _set(_fromName, widget.fromStopName);
+    _set(_toName, widget.toStopName);
     if (widget.expectedFare != null) {
       _expected.text = widget.expectedFare!.toStringAsFixed(2);
     }
@@ -76,8 +80,19 @@ class _ReportsPageState extends State<ReportsPage> {
 
   @override
   void dispose() {
-    for (final c in [_description, _routeId, _tripId, _fromId, _toId,
-      _vehicle, _routeName, _fromName, _toName, _expected, _observed]) {
+    for (final c in [
+      _description,
+      _routeId,
+      _tripId,
+      _fromId,
+      _toId,
+      _vehicle,
+      _routeName,
+      _fromName,
+      _toName,
+      _expected,
+      _observed,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -89,7 +104,7 @@ class _ReportsPageState extends State<ReportsPage> {
     final observed = double.tryParse(_observed.text.trim());
     if (_category == ReportCategory.fareDiscrepancy &&
         ((_expected.text.trim().isNotEmpty && expected == null) ||
-         (_observed.text.trim().isNotEmpty && observed == null))) {
+            (_observed.text.trim().isNotEmpty && observed == null))) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter valid fare amounts.')),
       );
@@ -116,10 +131,14 @@ class _ReportsPageState extends State<ReportsPage> {
         const SnackBar(content: Text('Report submitted successfully.')),
       );
       Navigator.of(context).pop();
-    } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not submit report: $error')),
-      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not submit the report. Please try again.'),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -145,34 +164,76 @@ class _ReportsPageState extends State<ReportsPage> {
       appBar: const ParaAppBar(title: 'Submit a Report'),
       body: Form(
         key: _formKey,
-        child: ListView(padding: const EdgeInsets.all(16), children: [
-          DropdownButtonFormField<ReportCategory>(
-            value: _category,
-            decoration: const InputDecoration(labelText: 'Report category', border: OutlineInputBorder()),
-            items: _labels.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
-            onChanged: (v) { if (v != null) setState(() => _category = v); },
-          ),
-          const SizedBox(height: 16),
-          TextFormField(controller: _description, maxLines: 5, maxLength: 5000,
-            decoration: const InputDecoration(labelText: 'Describe the problem', border: OutlineInputBorder()),
-            validator: (v) => v == null || v.trim().isEmpty ? 'Please describe the problem' : null),
-          const SizedBox(height: 16),
-          _field(_routeName, 'Route'), _field(_fromName, 'From stop'),
-          _field(_toName, 'To stop'), _field(_vehicle, 'Vehicle type'),
-          if (fare) Row(children: [Expanded(child: _field(_expected, 'Expected fare')), const SizedBox(width: 12), Expanded(child: _field(_observed, 'Observed fare'))]),
-          const SizedBox(height: 12),
-          FilledButton.icon(onPressed: _submitting ? null : _submit,
-            icon: _submitting ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send),
-            label: Text(_submitting ? 'Submitting...' : 'Submit report')),
-        ]),
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            DropdownButtonFormField<ReportCategory>(
+              value: _category,
+              decoration: const InputDecoration(
+                labelText: 'Report category',
+                border: OutlineInputBorder(),
+              ),
+              items: _labels.entries
+                  .map(
+                    (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
+                  )
+                  .toList(),
+              onChanged: (v) {
+                if (v != null) setState(() => _category = v);
+              },
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _description,
+              maxLines: 5,
+              maxLength: 5000,
+              decoration: const InputDecoration(
+                labelText: 'Describe the problem',
+                border: OutlineInputBorder(),
+              ),
+              validator: (v) => v == null || v.trim().isEmpty
+                  ? 'Please describe the problem'
+                  : null,
+            ),
+            const SizedBox(height: 16),
+            _field(_routeName, 'Route'),
+            _field(_fromName, 'From stop'),
+            _field(_toName, 'To stop'),
+            _field(_vehicle, 'Vehicle type'),
+            if (fare)
+              Row(
+                children: [
+                  Expanded(child: _field(_expected, 'Expected fare')),
+                  const SizedBox(width: 12),
+                  Expanded(child: _field(_observed, 'Observed fare')),
+                ],
+              ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _submitting ? null : _submit,
+              icon: _submitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send),
+              label: Text(_submitting ? 'Submitting...' : 'Submit report'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _field(TextEditingController controller, String label) => Padding(
     padding: const EdgeInsets.only(bottom: 12),
-    child: TextFormField(controller: controller, decoration: InputDecoration(labelText: label, border: const OutlineInputBorder())),
+    child: TextFormField(
+      controller: controller,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+      ),
+    ),
   );
 }
-
-

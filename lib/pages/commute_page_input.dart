@@ -202,25 +202,38 @@ class _CommutePageInputState extends State<CommutePageInput> {
 
     final requestId = ++_suggestionRequestId;
     final isShowingRecents = query.trim().isEmpty;
-    final List<PlaceSuggestion> suggestions;
-    if (isShowingRecents) {
-      _autocomplete.cancelPendingSuggestions();
-      suggestions = await RecentsService.instance.getRecentSuggestions();
-    } else {
-      suggestions = await _autocomplete.getDebouncedSuggestions(
-        query,
-        isAuthenticated: Supabase.instance.client.auth.currentUser != null,
-      );
-      if (_autocomplete.quotaExceeded && !_quotaPromptShown && mounted) {
-        _quotaPromptShown = true;
-        await _showAutocompleteQuotaPrompt();
+    try {
+      final List<PlaceSuggestion> suggestions;
+      if (isShowingRecents) {
+        _autocomplete.cancelPendingSuggestions();
+        suggestions = await RecentsService.instance.getRecentSuggestions();
+      } else {
+        suggestions = await _autocomplete.getDebouncedSuggestions(
+          query,
+          isAuthenticated: Supabase.instance.client.auth.currentUser != null,
+        );
+        if (_autocomplete.quotaExceeded && !_quotaPromptShown && mounted) {
+          _quotaPromptShown = true;
+          await _showAutocompleteQuotaPrompt();
+        }
       }
+      if (!mounted || requestId != _suggestionRequestId) return;
+      setState(() {
+        _suggestions = suggestions;
+        _showingRecents = isShowingRecents;
+      });
+    } on Exception {
+      if (!mounted || requestId != _suggestionRequestId) return;
+      setState(() {
+        _suggestions = [];
+        _showingRecents = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not load locations. Please try again.'),
+        ),
+      );
     }
-    if (!mounted || requestId != _suggestionRequestId) return;
-    setState(() {
-      _suggestions = suggestions;
-      _showingRecents = isShowingRecents;
-    });
   }
 
   Future<void> _showAutocompleteQuotaPrompt() {
@@ -307,11 +320,23 @@ class _CommutePageInputState extends State<CommutePageInput> {
         : widget.originController;
     setState(() => _suggestions = []);
 
-    final position =
-        await RecentsService.instance.getRecentPosition(
-          suggestion.placeId,
-        ) ??
-        await _autocomplete.geocode(suggestion);
+    Position? position;
+    try {
+      position =
+          await RecentsService.instance.getRecentPosition(
+            suggestion.placeId,
+          ) ??
+          await _autocomplete.geocode(suggestion);
+    } on Exception {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not load that location. Please try again.'),
+          ),
+        );
+      }
+      return;
+    }
     if (!mounted || position == null) return;
     if (_rejectDuplicateLocation(
       position,

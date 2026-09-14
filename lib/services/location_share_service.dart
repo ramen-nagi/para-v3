@@ -1,4 +1,5 @@
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:para_v3/services/service_exception.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LocationShareService {
@@ -40,39 +41,45 @@ class LocationShareService {
   }) async {
     final user = _client.auth.currentUser;
     if (user == null) {
-      throw StateError('Please sign in before sharing your location.');
+      throw const ServiceException(ServiceFailureKind.unauthorized);
     }
 
     final baseUrl = dotenv.env['LOCATION_SHARE_BASE_URL']?.trim() ?? '';
     if (!baseUrl.startsWith('https://')) {
-      throw StateError('The live-location website is not configured yet.');
+      throw const ServiceException(ServiceFailureKind.configuration);
     }
 
-    if (isSharing) await stop();
+    try {
+      if (isSharing) await stop();
 
-    final row = await _client
-        .from('live_location_shares')
-        .insert({
-          'user_id': user.id,
-          'display_name': displayName.trim(),
-          'lat': latitude,
-          'lng': longitude,
-          'destination_name': destinationName,
-          'destination_lat': destinationLatitude,
-          'destination_lng': destinationLongitude,
-          'transport_mode': transportMode,
-          'route_name': routeName,
-          'leg_from': legFrom,
-          'leg_to': legTo,
-          'leg_number': legNumber,
-          'leg_count': legCount,
-        })
-        .select('id, public_token')
-        .single();
+      final row = await _client
+          .from('live_location_shares')
+          .insert({
+            'user_id': user.id,
+            'display_name': displayName.trim(),
+            'lat': latitude,
+            'lng': longitude,
+            'destination_name': destinationName,
+            'destination_lat': destinationLatitude,
+            'destination_lng': destinationLongitude,
+            'transport_mode': transportMode,
+            'route_name': routeName,
+            'leg_from': legFrom,
+            'leg_to': legTo,
+            'leg_number': legNumber,
+            'leg_count': legCount,
+          })
+          .select('id, public_token')
+          .single();
 
-    _shareId = row['id'] as String;
-    _publicToken = row['public_token'] as String;
-    _lastUpdate = DateTime.now();
+      _shareId = row['id'] as String;
+      _publicToken = row['public_token'] as String;
+      _lastUpdate = DateTime.now();
+    } on ServiceException {
+      rethrow;
+    } on Exception {
+      throw const ServiceException(ServiceFailureKind.unavailable);
+    }
   }
 
   Future<void> update({
@@ -112,6 +119,8 @@ class LocationShareService {
           })
           .eq('id', shareId);
       _lastUpdate = now;
+    } on Exception {
+      throw const ServiceException(ServiceFailureKind.unavailable);
     } finally {
       _updateInProgress = false;
     }
@@ -124,6 +133,10 @@ class LocationShareService {
     _lastUpdate = null;
     if (shareId == null) return;
 
-    await _client.from('live_location_shares').delete().eq('id', shareId);
+    try {
+      await _client.from('live_location_shares').delete().eq('id', shareId);
+    } on Exception {
+      throw const ServiceException(ServiceFailureKind.unavailable);
+    }
   }
 }

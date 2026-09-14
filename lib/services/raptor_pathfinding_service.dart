@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:para_v3/services/gtfs_network_service.dart';
 
@@ -297,7 +296,6 @@ class RaptorPathfindingService {
     WalkingDistanceResolver? walkingDistanceResolver,
   }) async {
     if (!GtfsNetworkService.instance.isLoaded) {
-      debugPrint('RAPTOR Error: GTFS dataset not loaded yet.');
       return [];
     }
 
@@ -389,7 +387,6 @@ class RaptorPathfindingService {
     }
 
     if (allStops.isEmpty || allRoutes.isEmpty) {
-      debugPrint('RAPTOR Warning: No stops or routes found in dataset.');
       return [];
     }
 
@@ -921,8 +918,8 @@ class RaptorPathfindingService {
       while (_walkingCache.length > 2048) {
         _walkingCache.remove(_walkingCache.keys.first);
       }
-    } catch (error) {
-      debugPrint('Walking-distance lookup failed; using estimates: $error');
+    } on Exception {
+      // Missing road distances are intentionally replaced with estimates.
     }
     return result;
   }

@@ -169,11 +169,13 @@ class _ProfilePageState extends State<ProfilePage> {
           _open(const ProfilePageResetPassword(changePasswordOnly: true));
         }
       });
-    } on AuthException catch (error) {
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Password verification failed: ${error.message}'),
+        const SnackBar(
+          content: Text(
+            'The current password could not be verified. Please try again.',
+          ),
         ),
       );
     }

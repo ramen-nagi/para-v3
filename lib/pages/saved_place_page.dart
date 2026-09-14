@@ -44,15 +44,29 @@ class _SavedPlacePageState extends State<SavedPlacePage> {
   }
 
   Future<void> _search(String query) async {
-    final suggestions = await _autocomplete.getDebouncedSuggestions(
-      query,
-      isAuthenticated: true,
-    );
-    if (mounted) setState(() => _suggestions = suggestions);
+    try {
+      final suggestions = await _autocomplete.getDebouncedSuggestions(
+        query,
+        isAuthenticated: true,
+      );
+      if (mounted) setState(() => _suggestions = suggestions);
+    } on Exception {
+      if (!mounted) return;
+      setState(() => _suggestions = []);
+      _showLocationError('Could not search for locations. Please try again.');
+    }
   }
 
   Future<void> _select(PlaceSuggestion suggestion) async {
-    final position = await _autocomplete.geocode(suggestion);
+    Position? position;
+    try {
+      position = await _autocomplete.geocode(suggestion);
+    } on Exception {
+      if (mounted) {
+        _showLocationError('Could not load that location. Please try again.');
+      }
+      return;
+    }
     if (!mounted || position == null) return;
     setState(() {
       _selectedSuggestion = suggestion;
@@ -60,6 +74,12 @@ class _SavedPlacePageState extends State<SavedPlacePage> {
       _searchController.text = suggestion.fullText;
       _suggestions = [];
     });
+  }
+
+  void _showLocationError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   void _useCurrentLocation(Position position) {

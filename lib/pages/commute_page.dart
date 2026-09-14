@@ -101,7 +101,6 @@ class _CommutePageState extends State<CommutePage> {
   bool _isUpdatingGpsProgress = false;
   bool _isBuildingJourneys = false;
   bool _hasSearchedForJourneys = false;
-  String? _journeySearchError;
   bool _isChangingLocationShare = false;
   bool _shareUpdateErrorShown = false;
 
@@ -176,7 +175,6 @@ class _CommutePageState extends State<CommutePage> {
         _journeys = [];
         _selectedJourney = null;
         _hasSearchedForJourneys = false;
-        _journeySearchError = null;
       });
       return;
     }
@@ -192,7 +190,6 @@ class _CommutePageState extends State<CommutePage> {
         _selectedJourney = null;
         _sheetView = _CommuteSheetView.journeyOverviews;
         _hasSearchedForJourneys = true;
-        _journeySearchError = null;
       });
     }
     try {
@@ -231,14 +228,9 @@ class _CommutePageState extends State<CommutePage> {
         _sheetView = _CommuteSheetView.journeyOverviews;
         _isBuildingJourneys = false;
       });
-    } catch (error) {
-      debugPrint('Could not build journeys: $error');
+    } catch (_) {
       if (!mounted) return;
-      setState(() {
-        _isBuildingJourneys = false;
-        _journeySearchError =
-            'Could not search for routes. Check your connection and try again.';
-      });
+      setState(() => _isBuildingJourneys = false);
     }
   }
 
@@ -793,9 +785,10 @@ class _CommutePageState extends State<CommutePage> {
         ),
       );
       if (position.accuracy > 80) {
-        throw StateError(
+        _showGpsMessage(
           'Could not get an accurate location. Please try again.',
         );
+        return;
       }
 
       final leg = journey.legs[_activeLegIndex];
@@ -826,14 +819,14 @@ class _CommutePageState extends State<CommutePage> {
       if (!mounted) return;
       setState(() {});
       _showLocationShareSheet();
-    } catch (error) {
+    } catch (_) {
       if (_locationShareService.isSharing) {
         try {
           await _locationShareService.stop();
         } catch (_) {}
       }
       _showGpsMessage(
-        error.toString().replaceFirst('Bad state: ', ''),
+        'Could not start live-location sharing. Please try again.',
       );
     } finally {
       if (mounted) setState(() => _isChangingLocationShare = false);
@@ -1025,13 +1018,11 @@ class _CommutePageState extends State<CommutePage> {
       _nearLegEndUpdates = 0;
       _isOffRoute = false;
       _hasSearchedForJourneys = false;
-      _journeySearchError = null;
     });
     if (saveToHistory) {
       try {
         await RecentsService.instance.saveRecentCommute(journey);
-      } catch (error) {
-        debugPrint('Failed to save recent commute: $error');
+      } catch (_) {
         _showGpsMessage(
           'Your commute started, but it could not be added to recents.',
         );
@@ -1716,13 +1707,13 @@ class _CommutePageState extends State<CommutePage> {
           const SizedBox(height: 10),
           _oneLineText(
             'From: $fromName',
-            maxLines: 2,
+            maxLines: 1,
             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           _oneLineText(
             'To: $toName',
-            maxLines: 2,
+            maxLines: 1,
             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           ),
         ],
@@ -1754,7 +1745,7 @@ class _CommutePageState extends State<CommutePage> {
                     Expanded(
                       child: _oneLineText(
                         leg.steps![index].instruction,
-                        maxLines: 2,
+                        maxLines: 1,
                         style: const TextStyle(fontSize: 13),
                       ),
                     ),
@@ -1994,7 +1985,7 @@ class _CommutePageState extends State<CommutePage> {
                 children: [
                   _oneLineText(
                     stopName,
-                    maxLines: 2,
+                    maxLines: 1,
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
@@ -2071,7 +2062,7 @@ class _CommutePageState extends State<CommutePage> {
         Expanded(
           child: _oneLineText(
             destinationName,
-            maxLines: 2,
+            maxLines: 1,
             style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w700,
@@ -2168,7 +2159,7 @@ class _CommutePageState extends State<CommutePage> {
             _journeys.isEmpty &&
             !_isBuildingJourneys)
           Positioned(
-            top: 160,
+            top: 300,
             left: 24,
             right: 24,
             child: Card(
@@ -2179,9 +2170,8 @@ class _CommutePageState extends State<CommutePage> {
                   children: [
                     const Icon(Icons.route_outlined, size: 40),
                     const SizedBox(height: 10),
-                    Text(
-                      _journeySearchError ??
-                          'No routes found. Try different locations or search again.',
+                    const Text(
+                      'We could not find a route for you. Please check your connection or search again',
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 12),

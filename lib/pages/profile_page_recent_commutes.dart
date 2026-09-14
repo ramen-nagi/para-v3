@@ -33,8 +33,7 @@ class _ProfilePageRecentCommutesState extends State<ProfilePageRecentCommutes> {
       final commutes = await RecentsService.instance.getRecentCommutes();
       if (!mounted) return;
       setState(() => _commutes = commutes);
-    } catch (error) {
-      debugPrint('Failed to load recent commutes: $error');
+    } catch (_) {
     } finally {
       if (mounted) setState(() => _loading = false);
     }

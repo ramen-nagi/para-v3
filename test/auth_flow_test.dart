@@ -5,6 +5,7 @@ import 'package:para_v3/pages/profile_page_reset_password.dart';
 import 'package:para_v3/pages/profile_page_change_email.dart';
 import 'package:para_v3/pages/profile_page_verify_otp.dart';
 import 'package:para_v3/services/auth_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 void main() {
   group('email helpers', () {
@@ -12,6 +13,27 @@ void main() {
       expect(normalizeEmail('  USER@Example.COM '), 'user@example.com');
       expect(isValidEmail('person@example.com'), isTrue);
       expect(isValidEmail('not-an-email'), isFalse);
+    });
+  });
+
+  group('authentication errors', () {
+    test('maps typed failures to safe messages', () {
+      expect(
+        authErrorMessage(
+          const AuthServiceException(AuthFailureKind.invalidCredentials),
+        ),
+        'The email or password is incorrect.',
+      );
+    });
+
+    test('does not expose unknown provider messages', () {
+      expect(
+        authErrorMessage(
+          const AuthException('internal provider detail'),
+          fallback: 'Unable to sign in.',
+        ),
+        'Unable to sign in.',
+      );
     });
   });
 

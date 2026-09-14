@@ -59,25 +59,23 @@ class RecentsService {
       ''');
       final commutes = <RecentCommute>[];
       for (final row in rows) {
-        try {
-          final decoded = jsonDecode(row['journey_json'] as String);
-          final journey = Journey.fromJson(
-            Map<String, dynamic>.from(decoded as Map),
-          );
-          if (journey.legs.isEmpty) continue;
-          commutes.add(
-            RecentCommute(
-              id: row['commute_rowid'] as int,
-              journey: journey,
-              startedAt: DateTime.fromMillisecondsSinceEpoch(
-                row['started_at'] as int,
-              ),
-            ),
-          );
-          if (commutes.length == _maxRecents) break;
-        } catch (_) {
-          // A corrupt history row should not prevent other commutes from loading.
+        final journey = _decodeJourney(row['journey_json']);
+        final id = row['commute_rowid'];
+        final startedAt = row['started_at'];
+        if (journey == null ||
+            journey.legs.isEmpty ||
+            id is! int ||
+            startedAt is! int) {
+          continue;
         }
+        commutes.add(
+          RecentCommute(
+            id: id,
+            journey: journey,
+            startedAt: DateTime.fromMillisecondsSinceEpoch(startedAt),
+          ),
+        );
+        if (commutes.length == _maxRecents) break;
       }
       return commutes;
     } finally {
@@ -170,19 +168,12 @@ class RecentsService {
       WHERE signature IS NULL OR signature = ''
     ''');
     for (final row in rows) {
-      try {
-        final decoded = jsonDecode(row['journey_json'] as String);
-        final journey = Journey.fromJson(
-          Map<String, dynamic>.from(decoded as Map),
-        );
-        if (journey.legs.isEmpty) continue;
-        db.execute(
-          'UPDATE $_recentCommuteTableName SET signature = ? WHERE rowid = ?',
-          [_journeySignature(journey), row['legacy_rowid']],
-        );
-      } catch (_) {
-        // Leave unreadable legacy rows untouched; the history loader skips them.
-      }
+      final journey = _decodeJourney(row['journey_json']);
+      if (journey == null || journey.legs.isEmpty) continue;
+      db.execute(
+        'UPDATE $_recentCommuteTableName SET signature = ? WHERE rowid = ?',
+        [_journeySignature(journey), row['legacy_rowid']],
+      );
     }
 
     db.execute('''
@@ -226,35 +217,33 @@ class RecentsService {
             : 'journey_json';
         final rows = db.select('SELECT $selectedColumns FROM $legacyTable');
         for (final row in rows) {
-          try {
-            final journeyJson = row['journey_json'] as String;
-            final decoded = jsonDecode(journeyJson);
-            final journey = Journey.fromJson(
-              Map<String, dynamic>.from(decoded as Map),
-            );
-            if (journey.legs.isEmpty) continue;
-            final storedStartedAt = legacyColumns.contains('started_at')
-                ? row['started_at'] as num?
-                : null;
-            db.execute(
-              '''
+          final journeyJson = row['journey_json'];
+          final journey = _decodeJourney(journeyJson);
+          if (journeyJson is! String ||
+              journey == null ||
+              journey.legs.isEmpty) {
+            continue;
+          }
+          final storedStartedAt = legacyColumns.contains('started_at')
+              ? row['started_at']
+              : null;
+          if (storedStartedAt != null && storedStartedAt is! num) continue;
+          db.execute(
+            '''
               INSERT INTO $_recentCommuteTableName
                 (signature, journey_json, started_at)
               VALUES (?, ?, ?)
               ON CONFLICT(signature) DO UPDATE SET
                 journey_json = excluded.journey_json,
                 started_at = MAX(started_at, excluded.started_at)
-              ''',
-              [
-                _journeySignature(journey),
-                journeyJson,
-                storedStartedAt?.toInt() ??
-                    DateTime.now().millisecondsSinceEpoch,
-              ],
-            );
-          } catch (_) {
-            // The renamed legacy table retains any row that cannot be migrated.
-          }
+            ''',
+            [
+              _journeySignature(journey),
+              journeyJson,
+              (storedStartedAt as num?)?.toInt() ??
+                  DateTime.now().millisecondsSinceEpoch,
+            ],
+          );
         }
       }
       db.execute('COMMIT');
@@ -273,6 +262,18 @@ class RecentsService {
       );
     } finally {
       db.dispose();
+    }
+  }
+
+  Journey? _decodeJourney(Object? value) {
+    if (value is! String) return null;
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is! Map) return null;
+      return Journey.fromJson(Map<String, dynamic>.from(decoded));
+    } catch (_) {
+      // Persisted history is untrusted input; one malformed row is ignored.
+      return null;
     }
   }
 

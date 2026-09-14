@@ -61,7 +61,9 @@ class _RouteSuggestionPageState extends State<RouteSuggestionPage> {
     final end = _endPosition;
     if (start == null || end == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please set both route endpoints on the map.')),
+        const SnackBar(
+          content: Text('Please set both route endpoints on the map.'),
+        ),
       );
       return;
     }
@@ -85,18 +87,20 @@ class _RouteSuggestionPageState extends State<RouteSuggestionPage> {
         const SnackBar(content: Text('Route suggestion submitted.')),
       );
       Navigator.of(context).pop();
-    } on PostgrestException catch (error) {
-      if (mounted) _showError(error.message);
-    } catch (error) {
-      if (mounted) _showError(error.toString());
+    } catch (_) {
+      if (mounted) _showError();
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
-  void _showError(String message) {
+  void _showError() {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Could not submit route suggestion: $message')),
+      const SnackBar(
+        content: Text(
+          'Could not submit the route suggestion. Please try again.',
+        ),
+      ),
     );
   }
 
@@ -133,10 +137,12 @@ class _RouteSuggestionPageState extends State<RouteSuggestionPage> {
                 border: OutlineInputBorder(),
               ),
               items: _vehicleTypes.entries
-                  .map((entry) => DropdownMenuItem(
-                        value: entry.key,
-                        child: Text(entry.value),
-                      ))
+                  .map(
+                    (entry) => DropdownMenuItem(
+                      value: entry.key,
+                      child: Text(entry.value),
+                    ),
+                  )
                   .toList(),
               onChanged: (value) {
                 if (value != null) setState(() => _vehicleType = value);
@@ -195,16 +201,19 @@ class _RouteSuggestionPageState extends State<RouteSuggestionPage> {
             FilledButton.icon(
               onPressed: _isSubmitting ? null : _submit,
               icon: _isSubmitting
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : const Icon(Icons.send),
-              label: Text(_isSubmitting ? 'Submitting...' : 'Submit suggestion'),
+              label: Text(
+                _isSubmitting ? 'Submitting...' : 'Submit suggestion',
+              ),
             ),
           ],
         ),
       ),
     );
   }
-
 }
-
-

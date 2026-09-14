@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
@@ -94,10 +93,6 @@ class MapMatchingService {
       try {
         final response = await http.get(uri);
         if (response.statusCode != 200) {
-          debugPrint(
-            'Mapbox walking matrix failed '
-            '(${response.statusCode}): ${response.body}',
-          );
           continue;
         }
 
@@ -118,8 +113,8 @@ class MapMatchingService {
             resolved[batch[index].key] = double.infinity;
           }
         }
-      } catch (error) {
-        debugPrint('Error requesting Mapbox walking matrix: $error');
+      } on Exception {
+        // Walking distances are optional; callers use geographic estimates.
       }
     }
 
@@ -131,6 +126,7 @@ class MapMatchingService {
     Position end,
   ) async {
     final accessToken = dotenv.env['MAPBOX_ACCESS_TOKEN'];
+    if (accessToken == null || accessToken.isEmpty) return null;
     final uri = Uri.parse(
       'https://api.mapbox.com/directions/v5/mapbox/walking/'
       '${start.lng},${start.lat};${end.lng},${end.lat}'
@@ -144,19 +140,12 @@ class MapMatchingService {
     try {
       final response = await http.get(uri);
       if (response.statusCode != 200) {
-        debugPrint(
-          'Mapbox walking directions failed '
-          '(${response.statusCode}): ${response.body}',
-        );
         return null;
       }
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final routes = data['routes'] as List? ?? const [];
-      if (routes.isEmpty) {
-        debugPrint('Mapbox walking directions returned no routes: $data');
-        return null;
-      }
+      if (routes.isEmpty) return null;
 
       final route = routes.first as Map<String, dynamic>;
       final geometry = route['geometry'] as Map<String, dynamic>?;
@@ -196,8 +185,8 @@ class MapMatchingService {
         traffic: null,
         steps: steps.isEmpty ? null : steps,
       );
-    } catch (error) {
-      debugPrint('Error requesting Mapbox walking directions: $error');
+    } on Exception {
+      // Walking directions are optional; callers can use route estimates.
       return null;
     }
   }
@@ -207,6 +196,9 @@ class MapMatchingService {
     List<Position> coordinates,
   ) async {
     final accessToken = dotenv.env['MAPBOX_ACCESS_TOKEN'];
+    if (accessToken == null || accessToken.isEmpty || coordinates.length < 2) {
+      return null;
+    }
 
     final formattedCoordinates = coordinates
         .map((position) => '${position.lng},${position.lat}')
@@ -232,19 +224,12 @@ class MapMatchingService {
     try {
       final response = await http.get(uri);
       if (response.statusCode != 200) {
-        debugPrint(
-          'Mapbox map matching failed (${response.statusCode}): ${response.body}',
-        );
         return null;
       }
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final matchings = data['matchings'] as List? ?? const [];
-      debugPrint('Map Matching response code: ${data['code']}');
-      if (matchings.isEmpty) {
-        debugPrint('Map Matching returned no matchings: ${jsonEncode(data)}');
-        return null;
-      }
+      if (matchings.isEmpty) return null;
 
       final distances = <double>[];
       final durationsInSeconds = <double>[];
@@ -314,8 +299,8 @@ class MapMatchingService {
         traffic: congestionValues.isEmpty ? null : congestionValues,
         steps: navigationSteps.isEmpty ? null : navigationSteps,
       );
-    } catch (error) {
-      debugPrint('Error requesting Mapbox map matching: $error');
+    } on Exception {
+      // Map matching is optional; callers retain the unsnapped route geometry.
       return null;
     }
   }

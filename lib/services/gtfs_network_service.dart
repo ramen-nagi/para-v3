@@ -4,6 +4,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:para_v3/services/service_exception.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -16,7 +17,8 @@ enum VehicleType {
   bus(4),
   uvExpress(5),
   walk(6),
-  ejeep(7);
+  ejeep(7)
+  ;
 
   final int rawValue;
   const VehicleType(this.rawValue);
@@ -108,14 +110,18 @@ class GtfsNetworkService extends ChangeNotifier {
 
   bool isLoaded = false;
   bool isDownloading = false;
-  String? errorMessage;
+  ServiceException? failure;
+
+  String? get errorMessage => failure == null
+      ? null
+      : 'Routes could not be loaded. Check your connection and try again.';
 
   final Map<String, RoutesModel> routesMap = {};
 
   Future<void> initializeAndSync() async {
     try {
       isDownloading = true;
-      errorMessage = null;
+      failure = null;
       notifyListeners();
 
       final prefs = await SharedPreferences.getInstance();
@@ -136,7 +142,6 @@ class GtfsNetworkService extends ChangeNotifier {
       final localDbFile = File(p.join(appDir.path, 'gtfs_active.sqlite'));
 
       if (!await localDbFile.exists() || remoteVersion > localVersion) {
-        debugPrint('Downloading new dataset version ($remoteVersion)...');
         final response = await client.storage
             .from('gtfs_bundles')
             .download(filePath);
@@ -154,136 +159,139 @@ class GtfsNetworkService extends ChangeNotifier {
       routesMap.addAll(parsedRoutes);
 
       isLoaded = true;
+    } on Exception {
+      failure = const ServiceException(ServiceFailureKind.unavailable);
+    } finally {
       isDownloading = false;
       notifyListeners();
-    } catch (e) {
-      isDownloading = false;
-      errorMessage =
-          'Routes could not be loaded. Check your connection and try again.';
-      notifyListeners();
-      debugPrint('Error loading dataset: $e');
     }
   }
 
   static Map<String, RoutesModel> _loadDatabaseInIsolate(String dbPath) {
     final db = sqlite3.open(dbPath);
-    final Map<String, RoutesModel> routes = {};
+    try {
+      final Map<String, RoutesModel> routes = {};
 
-    final Map<String, String> stopNames = {};
-    final Map<String, double> stopLats = {};
-    final Map<String, double> stopLons = {};
+      final Map<String, String> stopNames = {};
+      final Map<String, double> stopLats = {};
+      final Map<String, double> stopLons = {};
 
-    final stopsRows = db.select(
-      'SELECT stop_id, stop_name, stop_lat, stop_lon FROM stops',
-    );
-
-    for (final row in stopsRows) {
-      final stopId = row['stop_id'] as String;
-      stopNames[stopId] = row['stop_name'] as String;
-      stopLats[stopId] = (row['stop_lat'] as num).toDouble();
-      stopLons[stopId] = (row['stop_lon'] as num).toDouble();
-    }
-
-    final routeRows = db.select(
-      'SELECT route_id, route_long_name, route_type FROM routes',
-    );
-    for (final row in routeRows) {
-      final routeId = row['route_id'] as String;
-      final routeLongName = row['route_long_name'] as String;
-      final routeTypeInt = row['route_type'] as int;
-      final vehicleType = VehicleType.fromInt(routeTypeInt);
-
-      routes[routeId] = RoutesModel(
-        routeId: routeId,
-        routeLongName: routeLongName,
-        vehicleType: vehicleType,
-        trips: [],
-      );
-    }
-
-    final tripRows = db.select('SELECT trip_id, route_id, shape_id FROM trips');
-    final Map<String, TripsModel> tripMap = {};
-
-    for (final row in tripRows) {
-      final tripId = row['trip_id'] as String;
-      final routeId = row['route_id'] as String;
-      final shapeId = row['shape_id'] as String?;
-
-      final trip = TripsModel(
-        tripId: tripId,
-        routeId: routeId,
-        shapeId: shapeId,
-        stopTimes: [],
-        shapes: [],
+      final stopsRows = db.select(
+        'SELECT stop_id, stop_name, stop_lat, stop_lon FROM stops',
       );
 
-      tripMap[tripId] = trip;
-      routes[routeId]?.trips.add(trip);
-    }
+      for (final row in stopsRows) {
+        final stopId = row['stop_id'] as String;
+        stopNames[stopId] = row['stop_name'] as String;
+        stopLats[stopId] = (row['stop_lat'] as num).toDouble();
+        stopLons[stopId] = (row['stop_lon'] as num).toDouble();
+      }
 
-    final Set<String> shapeIds = tripMap.values
-        .map((t) => t.shapeId)
-        .whereType<String>()
-        .toSet();
+      final routeRows = db.select(
+        'SELECT route_id, route_long_name, route_type FROM routes',
+      );
+      for (final row in routeRows) {
+        final routeId = row['route_id'] as String;
+        final routeLongName = row['route_long_name'] as String;
+        final routeTypeInt = row['route_type'] as int;
+        final vehicleType = VehicleType.fromInt(routeTypeInt);
 
-    if (shapeIds.isNotEmpty) {
-      final placeholders = List.filled(shapeIds.length, '?').join(',');
-      final shapeQuery =
-          '''
+        routes[routeId] = RoutesModel(
+          routeId: routeId,
+          routeLongName: routeLongName,
+          vehicleType: vehicleType,
+          trips: [],
+        );
+      }
+
+      final tripRows = db.select(
+        'SELECT trip_id, route_id, shape_id FROM trips',
+      );
+      final Map<String, TripsModel> tripMap = {};
+
+      for (final row in tripRows) {
+        final tripId = row['trip_id'] as String;
+        final routeId = row['route_id'] as String;
+        final shapeId = row['shape_id'] as String?;
+
+        final trip = TripsModel(
+          tripId: tripId,
+          routeId: routeId,
+          shapeId: shapeId,
+          stopTimes: [],
+          shapes: [],
+        );
+
+        tripMap[tripId] = trip;
+        routes[routeId]?.trips.add(trip);
+      }
+
+      final Set<String> shapeIds = tripMap.values
+          .map((t) => t.shapeId)
+          .whereType<String>()
+          .toSet();
+
+      if (shapeIds.isNotEmpty) {
+        final placeholders = List.filled(shapeIds.length, '?').join(',');
+        final shapeQuery =
+            '''
           SELECT shape_id, shape_pt_lat, shape_pt_lon, shape_pt_sequence 
           FROM shapes 
           WHERE shape_id IN ($placeholders)
           ORDER BY shape_id, shape_pt_sequence ASC
           ''';
 
-      final shapeRows = db.select(shapeQuery, shapeIds.toList());
+        final shapeRows = db.select(shapeQuery, shapeIds.toList());
 
-      final Map<String, List<ShapesModel>> shapesByShapeId = {};
+        final Map<String, List<ShapesModel>> shapesByShapeId = {};
 
-      for (final row in shapeRows) {
-        final sId = row['shape_id'] as String;
-        final shapePoint = ShapesModel(
-          shapeId: sId,
-          shapePtLat: (row['shape_pt_lat'] as num).toDouble(),
-          shapePtLon: (row['shape_pt_lon'] as num).toDouble(),
-          shapePtSequence: row['shape_pt_sequence'] as int,
-        );
+        for (final row in shapeRows) {
+          final sId = row['shape_id'] as String;
+          final shapePoint = ShapesModel(
+            shapeId: sId,
+            shapePtLat: (row['shape_pt_lat'] as num).toDouble(),
+            shapePtLon: (row['shape_pt_lon'] as num).toDouble(),
+            shapePtSequence: row['shape_pt_sequence'] as int,
+          );
 
-        shapesByShapeId.putIfAbsent(sId, () => []).add(shapePoint);
-      }
+          shapesByShapeId.putIfAbsent(sId, () => []).add(shapePoint);
+        }
 
-      for (final trip in tripMap.values) {
-        if (trip.shapeId != null && shapesByShapeId.containsKey(trip.shapeId)) {
-          trip.shapes?.addAll(shapesByShapeId[trip.shapeId]!);
+        for (final trip in tripMap.values) {
+          if (trip.shapeId != null &&
+              shapesByShapeId.containsKey(trip.shapeId)) {
+            trip.shapes?.addAll(shapesByShapeId[trip.shapeId]!);
+          }
         }
       }
-    }
 
-    final stopTimeRows = db.select('''
+      final stopTimeRows = db.select('''
       SELECT trip_id, stop_sequence, stop_id 
       FROM stop_times 
       ORDER BY trip_id, stop_sequence ASC
       ''');
 
-    for (final row in stopTimeRows) {
-      final tripId = row['trip_id'] as String;
-      final stopId = row['stop_id'] as String;
-      final stopSeq = row['stop_sequence'] as int;
+      for (final row in stopTimeRows) {
+        final tripId = row['trip_id'] as String;
+        final stopId = row['stop_id'] as String;
+        final stopSeq = row['stop_sequence'] as int;
 
-      final stopTime = StopsAndStopTimesModel(
-        tripId: tripId,
-        stopSequence: stopSeq,
-        stopId: stopId,
-        stopName: stopNames[stopId] ?? 'Unknown Stop',
-        stopLat: stopLats[stopId] ?? 0.0,
-        stopLon: stopLons[stopId] ?? 0.0,
-      );
+        final stopTime = StopsAndStopTimesModel(
+          tripId: tripId,
+          stopSequence: stopSeq,
+          stopId: stopId,
+          stopName: stopNames[stopId] ?? 'Unknown Stop',
+          stopLat: stopLats[stopId] ?? 0.0,
+          stopLon: stopLons[stopId] ?? 0.0,
+        );
 
-      tripMap[tripId]?.stopTimes.add(stopTime);
+        tripMap[tripId]?.stopTimes.add(stopTime);
+      }
+
+      return routes;
+    } finally {
+      db.dispose();
     }
-
-    db.dispose();
-    return routes;
   }
 
   List<RoutesModel> searchRoutesByLongName(String query) {
