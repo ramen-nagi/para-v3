@@ -1,0 +1,85 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.7"
+          channel: stable
+          cache: true
+
+      - name: Create application environment
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
+          MAPS_PLATFORM_KEY: ${{ secrets.MAPS_PLATFORM_KEY }}
+          LOCATION_SHARE_BASE_URL: ${{ secrets.LOCATION_SHARE_BASE_URL }}
+        run: |
+          required=(
+            SUPABASE_URL
+            SUPABASE_ANON_KEY
+            MAPBOX_ACCESS_TOKEN
+            MAPS_PLATFORM_KEY
+            LOCATION_SHARE_BASE_URL
+          )
+
+          for name in "${required[@]}"; do
+            if [[ -z "${!name}" ]]; then
+              echo "Required repository secret is missing: ${name}" >&2
+              exit 1
+            fi
+          done
+
+          {
+            printf 'SUPABASE_URL=%s\n' "$SUPABASE_URL"
+            printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_ANON_KEY"
+            printf 'MAPBOX_ACCESS_TOKEN=%s\n' "$MAPBOX_ACCESS_TOKEN"
+            printf 'MAPS_PLATFORM_KEY=%s\n' "$MAPS_PLATFORM_KEY"
+            printf 'LOCATION_SHARE_BASE_URL=%s\n' "$LOCATION_SHARE_BASE_URL"
+          } > .env
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Build unsigned iOS application
+        run: flutter build ios --release --no-codesign
+
+      - name: Package IPA
+        shell: bash
+        run: |
+          package_dir="build/ios/ipa"
+          mkdir -p "$package_dir/Payload"
+          cp -R "build/ios/iphoneos/Runner.app" "$package_dir/Payload/"
+          (
+            cd "$package_dir"
+            /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload Para.ipa
+          )
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: para-ios
+          path: build/ios/ipa/Para.ipa
+          if-no-files-found: error
+          retention-days: 14
