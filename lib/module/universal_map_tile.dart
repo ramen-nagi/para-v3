@@ -34,6 +34,7 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
   static const _darkStyleUri = 'mapbox://styles/mapbox/dark-v11';
 
   final _locationPermissionService = const LocationPermissionService();
+  Future<LocationPermissionState>? _locationPermissionRequest;
   LocationPermissionState? _locationPermissionState;
   MapboxMap? _mapboxMap;
   bool _isTrafficVisible = false;
@@ -43,12 +44,22 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
   String _styleUri(bool isDarkMode) =>
       isDarkMode ? _darkStyleUri : _lightStyleUri;
 
-  Future<void> _enableLiveLocation(MapboxMap mapboxMap) async {
+  Future<LocationPermissionState> _requestLocationPermission() {
+    return _locationPermissionRequest ??= _loadLocationPermission();
+  }
+
+  Future<LocationPermissionState> _loadLocationPermission() async {
     final permissionState = await _locationPermissionService
         .requestPermission();
-    if (!mounted) return;
+    if (mounted) {
+      setState(() => _locationPermissionState = permissionState);
+    }
+    return permissionState;
+  }
 
-    setState(() => _locationPermissionState = permissionState);
+  Future<void> _enableLiveLocation(MapboxMap mapboxMap) async {
+    final permissionState = await _requestLocationPermission();
+    if (!mounted) return;
     if (permissionState != LocationPermissionState.granted) return;
 
     await mapboxMap.location.updateSettings(
@@ -250,6 +261,9 @@ class _UniversalMapTileState extends State<UniversalMapTile> {
           ),
           onMapCreated: (MapboxMap mapboxMap) async {
             _mapboxMap = mapboxMap;
+            // Ask immediately instead of waiting for network-backed style setup.
+            // _enableLiveLocation awaits this same cached request below.
+            unawaited(_requestLocationPermission());
             await mapboxMap.loadStyleURI(
               _styleUri(_isDarkMode ?? isDarkMode),
             );
